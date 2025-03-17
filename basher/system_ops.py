@@ -230,7 +230,7 @@ class SystemOps(BashCommand):
             result = value
         else:
             # Get the environment variable
-            result = self.cmd(f"echo ${var_name}").strip()  # For Unix-like systems
+            result = self.cmd(f"echo ${var_name}", capture_output=True).strip()  # For Unix-like systems
             # result = bash.cmd(f"echo %{var_name}%").strip()  # For Windows systems
             self.echo(f"The value of {var_name} is: {result}")
         return result

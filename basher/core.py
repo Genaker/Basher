@@ -44,6 +44,7 @@ class BashCommand:
         
         # Get verbosity level (default to 1 if not set)
         verbosity = self.get_verbosity()
+        result = None
      
         # If cwd is provided, temporarily change to that directory
         original_dir = None
@@ -239,7 +240,8 @@ class BashCommand:
             
             if verbosity > -1:
                 print(f"{self.BLUE}    Return code:{self.RESET} {self.MAGENTA}[{return_code}]{self.RESET}")
-           
+            if return_code != 0 and stderr_output:
+                print(f"Command failed with return code = {self.MAGENTA}[{return_code}]{self.RESET} {self.RED} {stderr_output}{self.RESET}")
             return return_code
         
         except Exception as e:
