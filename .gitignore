@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+basher/__pycache__
+build/
+dist/
+basher2.egg-info/
+basher.egg-info/
