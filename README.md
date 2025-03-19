@@ -330,6 +330,16 @@ Most methods return `True` if successful and `False` if they fail, making it eas
 if not bash.mkdir("/path/to/directory"):
     print("Failed to create directory")
 ```
+## Build for PIP
+
+Change version in `setup.py` and run commands:
+```bash
+rm -rf dist/*
+python3 setup.py sdist bdist_wheel
+python3 -m twine upload dist/*
+```
+
+
 
 ## License
 
