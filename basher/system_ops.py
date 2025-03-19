@@ -11,6 +11,7 @@ class SystemOps(BashCommand):
 
     # Initialize package_manager as None (not detected yet)
     package_manager = None
+
     
     def __init__(self, working_dir=None, file_ops=None):
         """Initialize the SystemOps object."""
@@ -101,6 +102,7 @@ class SystemOps(BashCommand):
         
         try:
             os.chdir(directory_path)
+            self.working_dir = directory_path
             return True
         except Exception as e:
             self.error(f"Failed to change directory: {e}")
@@ -223,14 +225,29 @@ class SystemOps(BashCommand):
         return self.cmd("pwd")
     
     def env_var(self, var_name, value=None):
+        """
+        Manage environment variables.
+        
+        :param var_name: Name of the environment variable.
+        :param value: Value to set for the environment variable.
+        :return: The value of the environment variable.
+        """
         if value is not None:
             # Set the environment variable
-            self.cmd(f"export {var_name}='{value}'")  # For Unix-like systems
+            # print(f"{self.YELLOW}CMD#{self.RESET} export {var_name}='{value}'")  # For Unix-like systems
+
+            self.cmd(f"export {var_name}='{value}'", emulate=True);
+            self.env_vars[var_name] = str(value).strip()
+            # Set environment variable in Python otherwise it will not work
+            os.environ[var_name] = str(value).strip()
             # bash.cmd(f"set {var_name}={value}")  # For Windows systems
             result = value
         else:
             # Get the environment variable
-            result = self.cmd(f"echo ${var_name}", capture_output=True).strip()  # For Unix-like systems
+            sh_result = self.cmd(f"echo ${var_name}", show_output=True, capture_output=True).strip();
+            result = os.environ[var_name]
+            # self.cmd(f"echo ${var_name}", show_output=True, capture_output=True);
+            # print(f"{self.YELLOW}CMD#{self.RESET} echo ${var_name}")  # For Unix-like systems
             # result = bash.cmd(f"echo %{var_name}%").strip()  # For Windows systems
-            self.echo(f"The value of {var_name} is: {result}")
+            self.echo(f"The value of {var_name} is: [{result}]")
         return result

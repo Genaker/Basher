@@ -131,18 +131,40 @@ def setup_postgresql(db_name, db_user, db_password):
     # List all databases in PostgreSQL (correct command)
     bash.cmd(f"sudo -u postgres psql -c \"\\l\"")
 
+def install_node():
+    """Install Node.js."""
+    bash.cmd("curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash")
+    command = """
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    nvm install 20
+    """
+
+    bash.cmd(command)
+    bash.cmd("nvm -v")
 
 def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin_email, admin_firstname, admin_lastname, admin_password):
     """Clone and setup OroCommerce."""
-    bash.rm("-rf /var/www/html/oro")
+    bash.rm("/var/www/html/oro")
     bash.mkdir("/var/www/html/oro")
     bash.cd("/var/www/html/oro")
     bash.cmd("git clone --branch 6.0 https://github.com/oroinc/orocommerce-application.git /var/www/html/oro")
     bash.cd("/var/www/html/oro")
     bash.cmd("ls -la")
+
+    install_node()
+    
+    node_version = bash.cmd("node -v", capture_output=True)
+    print(f"Node version: {node_version}")
+    bash.env_var("TEST", "test1")
+    print("Print TEST:")
+    bash.env_var("TEST")
+
     bash.cmd("composer install")
     bash.pwd();
     bash.env_var("COMPOSER_ALLOW_SUPERUSER", "1")
+
+
     # Set the database URL in the .env-app file becouse ENV doesn't work ... 
     bash.cmd("sed -i '/^ORO_DB_URL=/d' /var/www/html/oro/.env-app")
     ORO_DB_URL="postgres://postgres:postgres@127.0.0.1:5432/oro?sslmode=disable&charset=utf8&serverVersion=13.7"
@@ -156,11 +178,9 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
 
     bash.echo("PreInstall Check OroCommerce...")
     bash.cmd("php bin/console oro:check-requirements")  
-    bash.cmd("php bin/console oro:environment:info")
+    ##bash.cmd("php bin/console oro:environment:info")
     bash.cmd("php bin/console doctrine:schema:validate --skip-sync")
-    bash.env_var("TEST", "test")
-    print("Print TEST:")
-    bash.env_var("TEST")
+    
     bash.echo("Installing OroCommerce...")
     bash.cmd("service postgresql start")
     bash.cmd("service redis-server start")
@@ -177,6 +197,11 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.cmd("php bin/console cache:clear --env=prod")
     bash.echo("Installation completed")
     bash.cmd("sudo chmod -R 755 /var/www/html/oro/var")
+    print("Installation completed start all services...")
+    bash.cmd("service nginx start")
+    bash.cmd("service php8.3-fpm start")
+    bash.cmd("service redis-server start") 
+    bash.cmd("service postgresql start")
 
 
 def install_packages(packages):

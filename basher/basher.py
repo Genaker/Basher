@@ -148,7 +148,7 @@ class Basher(BashCommand):
             reset_code = colors['reset']
             escaped_message = f"{color_code}{escaped_message}{reset_code}"
             # Always use -e flag when we have color codes
-            e_flag = "-e"
+            e_flag = ""
         else:
             # No -e flag needed for plain text
             e_flag = ""

@@ -21,12 +21,30 @@ class BashCommand:
     ITALIC = '\033[3m'
     RESET = '\033[0m'  # Reset to default color
 
-    def __init__(self, working_dir=None):
-        """Initialize the BashCommand object."""
-        self.working_dir = working_dir
+   
+    # Initialize env_vars as an empty dictionary
+    env_vars = {}
+    # the directory to run the command in
+    working_dir = None
+    # the user run the command as
+    current_user = None
+     # Default to not show output you can set it to True to show output by default
+    show_output = False
 
+    def __init__(self, working_dir=None):
+        """Initialize the BashCommand object.
+        :param working_dir: The working directory to use for the commands by default it will use the current directory if not set.
+        """
+        if working_dir is None:
+            self.working_dir = os.getcwd()
+        else:
+            if os.path.exists(working_dir):
+                self.working_dir = working_dir
+            else:
+                raise ValueError(f"Working directory '{working_dir}' does not exist")
+        
     
-    def cmd(self, command, show_output=True, capture_output=False, check=True, cwd=None, highlight_errors=True, detect_input_prompt=True, arguments=None):
+    def cmd(self, command, show_output=None, capture_output=False, check=True, cwd=None, user=None, detect_input_prompt=True, arguments=None, emulate=False, bashrc=False, executable='/bin/bash'):
         """
         Execute a bash SuperHerocommand.
         
@@ -35,12 +53,25 @@ class BashCommand:
         :param capture_output: Whether to capture and return the command output.
         :param check: Whether to raise an exception if the command fails.
         :param cwd: The directory to execute the command in.
-        :param highlight_errors: Whether to highlight error messages in red.
         :param detect_input_prompt: Whether to detect and raise an exception if the command requires input.
+        :param arguments: Additional arguments to pass to the command.
+        :param emulate: Whether to emulate the command and don't run it.
+        :param bashrc: Whether to add bashrc file to the command.
         :return: The command output if capture_output is True, otherwise the return code.
         """
         import time
         import re
+        
+        # Use class properties as defaults if parameters are not provided
+        if show_output is None:
+            show_output = self.show_output  # Assuming self.show_output is defined elsewhere
+        if cwd is None:
+            cwd = self.working_dir
+        if user is None:
+            user = self.current_user
+
+        if bashrc:
+            command = f"source ~/.bashrc && {command}"
         
         # Get verbosity level (default to 1 if not set)
         verbosity = self.get_verbosity()
@@ -55,19 +86,29 @@ class BashCommand:
         elif verbosity == 0:
             print(f"{self.YELLOW}CMD#{self.RESET} {command}")
         
+        # If emulate is True, don't run the command
+        if emulate:
+            return 0
+        
         if verbosity == 3:
             # Print positional arguments
-            print(f"{self.BLUE}    Arguments->{self.RESET} show_output:{show_output}, capture_output:{capture_output}, check:{check}, cwd:{cwd}, highlight_errors:{highlight_errors}, detect_input_prompt:{detect_input_prompt}")
+            print(f"{self.BLUE}    Arguments->{self.RESET} show_output:{show_output}, capture_output:{capture_output}, user:{user}, check:{check}, cwd:{cwd}, detect_input_prompt:{detect_input_prompt}, bashrc:{bashrc}, executable:{executable}")
 
    
         if cwd:
             original_dir = os.getcwd()
             os.chdir(cwd)
+
+        # Create a base arguments dictionary
+        run_args = {'shell': True, 'capture_output': True, 'text': True, 'executable': executable, 'cwd': cwd, 'user': user}
+                
+        # Update with custom arguments if provided
+        if arguments is not None:
+            run_args.update(arguments)
         
         try:
             if verbosity == 0:
-                # Create a base arguments dictionary
-                run_args = {'shell': True, 'capture_output': True, 'text': True}
+                run_args = {'shell': True, 'capture_output': True, 'text': True, 'user':user, 'executable': executable, 'cwd': cwd, 'user': user}
                 
                 # Update with custom arguments if provided
                 if arguments is not None:
@@ -75,15 +116,19 @@ class BashCommand:
                     
                 # Run the command with the arguments
                 result = subprocess.run(command, **run_args)
+                
+            # out put live progress if verbosity is greater than 0
             if verbosity > 0:
+                
+                run_args = {'shell': True, 'user':user, 'stdout': subprocess.PIPE, 'stderr': subprocess.PIPE, 'text': True, 'bufsize': 1, 'executable': executable, 'cwd': cwd, 'user': user}
+                
+                # Update with custom arguments if provided
+                if arguments is not None:
+                    run_args.update(arguments)
                 # Use subprocess.Popen for better control over output
                 process = subprocess.Popen(
                     command,
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=1  # Line buffered
+                    **run_args
                 )
                 
                 # Collect output if needed
@@ -111,9 +156,10 @@ class BashCommand:
                     # Read a line from stdout
                     stdout_line = process.stdout.readline()
                     if stdout_line:
-                        # Only show output if verbosity level allows it
-                        if show_output and (verbosity > 0):
-                            print(stdout_line, end='')
+                        # Only show output if verbosity level allows it or show_output is True
+                        if verbosity > 0 or show_output:
+                            print(f'{self.BLUE}     STDOUT#{self.RESET} {stdout_line.rstrip()}')
+            
                         if capture_output:
                             stdout_output += stdout_line
                         
@@ -139,14 +185,14 @@ class BashCommand:
                     # Read a line from stderr
                     stderr_line = process.stderr.readline()
                     if stderr_line:
+                        if verbosity > 0:
+                            print(f'{self.BLUE}     STDERR#{self.RESET} {self.RED}{stderr_line.rstrip()}{self.RESET}')
                         # Only show errors if verbosity level allows it
                         if show_output and (verbosity > 0):
-                            if highlight_errors:
-                                print(f"{self.RED}{stderr_line}{self.RESET}", end='')
-                            else:
-                                print(stderr_line, end='')
-                        if capture_output:
-                            stderr_output += stderr_line
+                            print(f"{self.RED}{stderr_line}{self.RESET}", end='')
+
+                        
+                        stderr_output += stderr_line
                         
                         # Check for input prompts in stderr
                         if detect_input_prompt:
@@ -165,15 +211,15 @@ class BashCommand:
                     
                     # Check if process has ended and no more output
                     if not stdout_line and not stderr_line and process.poll() is not None:
-                        if verbosity > 1:  # Only show success message in verbose mode
-                            print(f"{self.GREEN}Command completed successfully{self.RESET}")
+                        if verbosity == 3:
+                            print(f'{self.BLUE}Process has ended and no more output{self.RESET}')
                         break
                     
                     # If no output but process is still running, check if it's waiting for input
                     if not stdout_line and not stderr_line and process.poll() is None and detect_input_prompt:
                         print(f"{self.YELLOW}Command is waiting for input{self.RESET}")
                         # Sleep a bit to avoid busy waiting
-                        time.sleep(0.1)
+                        time.sleep(100 / 1000)
                         
                         # Check if the process has been running for too long without output
                         # This could indicate it's waiting for input
@@ -217,31 +263,34 @@ class BashCommand:
                 return_code = result.returncode
                 stdout_output = result.stdout
                 stderr_output = result.stderr
+            
+            # Print output if requested
+            if show_output:
+                print(f"{self.BLUE}    OUTPUT#{self.RESET} {(stdout_output + stderr_output).rstrip()}")
                 
             # Check for errors if requested
             if check and return_code != 0:
                 if verbosity > 0:
-                    print(f"{self.RED}Command failed with return code {return_code}{self.RESET}")
                     if not show_output:
-                        print(f"{self.RED}Output: {stdout_output}{stderr_output}{self.RESET}")
+                        print(f"{self.BLUE}ERR OUTPUT:{self.RESET} {self.RED}{(stdout_output + stderr_output).rstrip()}{self.RESET}")
             
             # Print status based on verbosity
-            if verbosity > 1:  # Only show status in verbose mode
+            if verbosity > 0:  # Only show status in verbose mode
                 if return_code == 0:
                     print(f"{self.GREEN}Command completed successfully{self.RESET}")
-                else:
-                    print(f"{self.RED}Command failed with return code = {self.MAGENTA}[{return_code}]{self.RESET}")
             
             # Return combined output if requested
             if capture_output:
                 if verbosity == 3:
-                    print(f"{self.BLUE}    Captured Output->{self.RESET} {stdout_output + stderr_output}")
+                    print(f"{self.BLUE}    Captured Output->{self.RESET} {(stdout_output + stderr_output).rstrip()}")
                 return stdout_output + stderr_output
             
             if verbosity > -1:
                 print(f"{self.BLUE}    Return code:{self.RESET} {self.MAGENTA}[{return_code}]{self.RESET}")
+            # If the command failed, print the output any way
             if return_code != 0 and stderr_output:
-                print(f"Command failed with return code = {self.MAGENTA}[{return_code}]{self.RESET} {self.RED} {stderr_output}{self.RESET}")
+                print(f"Command failed with return code = {self.RED}[{return_code}]{self.RESET}")
+                print(f"{self.BLUE}    ERR OUTPUT:{self.RESET} {self.RED}{(stdout_output + stderr_output).rstrip()}{self.RESET}")
             return return_code
         
         except Exception as e:
@@ -306,6 +355,17 @@ class BashCommand:
         return self.cmd(f"cd '{directory}' && {command}", show_output=show_output)
     
         os.chdir(original_dir)
+
+    def user(self, user=None):
+        """
+        Set the current user.
+        
+        :param user: The user to set.
+        """
+        if user is None:
+            return self.current_user
+        else:
+            self.current_user = user
     
     def echo(self, message):
         """

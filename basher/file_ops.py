@@ -23,7 +23,7 @@ class FileOps(BashCommand):
             raise ValueError("Mode must be 'w' (write) or 'a' (append)")
         
         redirect = '>' if mode == 'w' else '>>'
-        return self.cmd(f"echo '{content}' {redirect} '{file_path}'") is not None
+        return self.cmd(f"echo '{content}' {redirect} {file_path}") is not None
     
     def read_file(self, file_path):
         """
