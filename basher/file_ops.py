@@ -36,7 +36,7 @@ class FileOps(BashCommand):
             self.error(f'File "{file_path}" does not exist')
             return None
         
-        return self.cmd(f"cat '{file_path}'", show_output=False)
+        return self.cmd(f"cat '{file_path}'", capture_output=True, show_output=False)
     
     def replace_in_file(self, file_path, start_pattern, new_string):
         """

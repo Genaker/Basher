@@ -222,7 +222,7 @@ class SystemOps(BashCommand):
         """
         Get the current working directory.
         """
-        return self.cmd("pwd")
+        return self.cmd("pwd", show_output=True)
     
     def env_var(self, var_name, value=None):
         """
