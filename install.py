@@ -30,17 +30,17 @@ def install_php(php_ini_path):
     bash.rm("/etc/php/8.3/fpm/php.ini");
     bash.install("php8.3 php8.3-fpm php8.3-cli php8.3-pdo php8.3-mysqlnd php8.3-redis php8.3-xml php8.3-soap php8.3-gd php8.3-zip php8.3-intl php8.3-mbstring php8.3-opcache php8.3-curl php8.3-bcmath php8.3-ldap php8.3-pgsql php8.3-dev php8.3-mongodb");
     php_settings = """
-memory_limit = 2048M
-max_input_time = 600
-max_execution_time = 600
-realpath_cache_size=4096K
-realpath_cache_ttl=600
-opcache.enable=1
-opcache.enable_cli=0
-opcache.memory_consumption=512
-opcache.interned_strings_buffer=32
-opcache.max_accelerated_files=32531
-opcache.save_comments=1"""
+    memory_limit = 2048M
+    max_input_time = 600
+    max_execution_time = 600
+    realpath_cache_size=4096K
+    realpath_cache_ttl=600
+    opcache.enable=1
+    opcache.enable_cli=0
+    opcache.memory_consumption=512
+    opcache.interned_strings_buffer=32
+    opcache.max_accelerated_files=32531
+    opcache.save_comments=1"""
     php_ini_fpm_path =  "/etc/php/8.3/fpm/php.ini"
     php_ini_cli_path = "/etc/php/8.3/cli/php.ini"
     bash.write_to_file(php_ini_fpm_path, php_settings, 'a')
@@ -57,18 +57,18 @@ opcache.save_comments=1"""
     
     """Configure PHP settings."""
     settings = """
-memory_limit = 2048M
-max_input_time = 600
-max_execution_time = 600
-realpath_cache_size=4096K
-realpath_cache_ttl=600
-opcache.enable=1
-opcache.enable_cli=0
-opcache.memory_consumption=512
-opcache.interned_strings_buffer=32
-opcache.max_accelerated_files=32531
-opcache.save_comments=1
-"""
+    memory_limit = 2048M
+    max_input_time = 600
+    max_execution_time = 600
+    realpath_cache_size=4096K
+    realpath_cache_ttl=600
+    opcache.enable=1
+    opcache.enable_cli=0
+    opcache.memory_consumption=512
+    opcache.interned_strings_buffer=32
+    opcache.max_accelerated_files=32531
+    opcache.save_comments=1
+    """
     bash.write_to_file(php_ini_path, settings, 'a')
     bash.echo(f"PHP configured successfully in {php_ini_path}")
 
@@ -131,17 +131,14 @@ def setup_postgresql(db_name, db_user, db_password):
     # List all databases in PostgreSQL (correct command)
     bash.cmd(f"sudo -u postgres psql -c \"\\l\"")
 
-def install_node():
+def install_node(node_version='20'):
     """Install Node.js."""
-    bash.cmd("curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash")
-    command = """
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-    nvm install 20
-    """
+    bash.cmd(f"curl -sL https://deb.nodesource.com/setup_{node_version}.x -o /tmp/nodesource_setup.sh")
 
-    bash.cmd(command)
-    bash.cmd("nvm -v")
+    bash.cmd("bash /tmp/nodesource_setup.sh")
+    bash.cmd("apt-get install -y nodejs")
+
+    return bash.cmd("node -v", assert_returncode=0)
 
 def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin_email, admin_firstname, admin_lastname, admin_password):
     """Clone and setup OroCommerce."""
@@ -152,7 +149,9 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.cd("/var/www/html/oro")
     bash.cmd("ls -la")
 
-    install_node()
+    if install_node() != 0:
+        bash.echo("Node.js installation failed")
+        exit(1)
     
     node_version = bash.cmd("node -v", capture_output=True)
     print(f"Node version: {node_version}")
@@ -164,7 +163,6 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.pwd();
     bash.env_var("COMPOSER_ALLOW_SUPERUSER", "1")
 
-
     # Set the database URL in the .env-app file becouse ENV doesn't work ... 
     bash.cmd("sed -i '/^ORO_DB_URL=/d' /var/www/html/oro/.env-app")
     ORO_DB_URL="postgres://postgres:postgres@127.0.0.1:5432/oro?sslmode=disable&charset=utf8&serverVersion=13.7"
@@ -173,7 +171,7 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.cmd("chmod 755 /usr/local/bin/symfony")
     bash.cmd("chmod +x /var/www/html/oro/bin/console")
     bash.cmd("ls -la /var/www/html/oro/")
-    bash.cmd("composer clear-cache")
+    #bash.cmd("composer clear-cache")
     bash.cmd("service postgresql start")
 
     bash.echo("PreInstall Check OroCommerce...")
@@ -182,26 +180,31 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.cmd("php bin/console doctrine:schema:validate --skip-sync")
     
     bash.echo("Installing OroCommerce...")
-    bash.cmd("service postgresql start")
-    bash.cmd("service redis-server start")
-    bash.cd("/var/www/html/oro/")
-    # OFFICIAL DOCKER://github.com/oroinc/docker-demo/blob/master/compose.yaml#L121C342-L121C380
-    bash.cmd(f"php bin/console oro:install --no-interaction --env=prod --user-name={admin_user} --user-email={admin_email} --user-firstname={admin_firstname} --user-lastname={admin_lastname} --user-password={admin_password} --timeout=2000")
-    bash.cmd("php bin/console oro:migration:data:load --fixtures-type=demo --env=prod")
-    bash.cmd("php bin/console oro:assets:install --symlink")
-    bash.cmd("php bin/console oro:search:reindex")
-    bash.cmd("composer set-parameters redis")
-    bash.cmd("rm -rf /var/www/html/oro/var/cache/*")
-    bash.cmd("rm -rf /var/www/html/oro/var/sessions/*")
-    bash.cmd("rm -rf /var/www/html/oro/var/log/*")
-    bash.cmd("php bin/console cache:clear --env=prod")
-    bash.echo("Installation completed")
-    bash.cmd("sudo chmod -R 755 /var/www/html/oro/var")
+ 
     print("Installation completed start all services...")
     bash.cmd("service nginx start")
     bash.cmd("service php8.3-fpm start")
     bash.cmd("service redis-server start") 
     bash.cmd("service postgresql start")
+    bash.cd("/var/www/html/oro/")
+    # OFFICIAL DOCKER://github.com/oroinc/docker-demo/blob/master/compose.yaml#L121C342-L121C380
+    bash.cmd(f"php bin/console oro:install --no-interaction --env=prod --user-name={admin_user} --user-email={admin_email} --user-firstname={admin_firstname} --user-lastname={admin_lastname} --user-password={admin_password} --timeout=2000")
+    bash.cmd("php bin/console oro:migration:data:load --fixtures-type=demo --env=prod")
+    bash.cmd("php bin/console oro:assets:install --symlink")
+    bash.cmd("chmod -R 777 /var/www/html/oro/var")
+    bash.cmd("php bin/console cache:clear --env=prod")
+    bash.pwd()
+    bash.cmd("php bin/console oro:search:reindex")
+    bash.cmd("composer set-parameters redis")
+    #bash.cmd("rm -rf /var/www/html/oro/var/cache/*")
+    #bash.cmd("rm -rf /var/www/html/oro/var/sessions/*")
+    #bash.cmd("rm -rf /var/www/html/oro/var/log/*")
+
+    bash.echo("Installation completed")
+    bash.cmd("sudo chmod -R 755 /var/www/html/oro/var")
+
+    bash.cmd("php /var/www/html/oro/bin/console oro:message-queue:consume --memory-limit=256M")
+
 
 
 def install_packages(packages):

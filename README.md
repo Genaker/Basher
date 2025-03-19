@@ -334,12 +334,30 @@ if not bash.mkdir("/path/to/directory"):
 
 Change version in `setup.py` and run commands:
 ```bash
+sudo apt install  -y
 rm -rf dist/*
 python3 setup.py sdist bdist_wheel
 python3 -m twine upload dist/*
 ```
+add key here : ~/.pypirc
+```
+# ~/.pypirc
+[pypi]
+username = __token__
+password = pypi-AgEIcH***
+```
+or  Using Environment Variables
+```bash
+export PYPI_USERNAME=__token__
+export PYPI_PASSWORD=pypi-AgEIcH***
+```
 
+## Initial install using 
 
+```bash
+sudo apt install python3 python3-pip
+pip3 install basher2
+```
 
 ## License
 

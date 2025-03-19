@@ -44,9 +44,9 @@ class BashCommand:
                 raise ValueError(f"Working directory '{working_dir}' does not exist")
         
     
-    def cmd(self, command, show_output=None, capture_output=False, check=True, cwd=None, user=None, detect_input_prompt=True, arguments=None, emulate=False, bashrc=False, executable='/bin/bash'):
+    def cmd(self, command, show_output=None, capture_output=False, check=True, cwd=None, user=None, detect_input_prompt=True, arguments=None, emulate=False, bashrc=False, executable='/bin/bash', assert_output=None, assert_returncode=None, assert_regex=False, assert_error_message=None, background=False):
         """
-        Execute a bash SuperHerocommand.
+        Execute a bash Herro Command.
         
         :param command: The command to execute.
         :param show_output: Whether to show the command output.
@@ -57,7 +57,14 @@ class BashCommand:
         :param arguments: Additional arguments to pass to the command.
         :param emulate: Whether to emulate the command and don't run it.
         :param bashrc: Whether to add bashrc file to the command.
+        :param executable: The executable to use for the command.
+        :param assert_output: If provided, assert that the command output contains or matches this string.
+        :param assert_returncode: Assert that the command returns this code (default: 0).
+        :param assert_regex: If True, treat assert_output as a regex pattern.
+        :param background: Whether to run the command in the background.
+        :param assert_error_message: Custom error message to raise if assertion fails.
         :return: The command output if capture_output is True, otherwise the return code.
+        :raises AssertionError: If any assertion fails.
         """
         import time
         import re
@@ -72,6 +79,9 @@ class BashCommand:
 
         if bashrc:
             command = f"source ~/.bashrc && {command}"
+        
+        if background:
+            command = f"{command} >/dev/null 2>&1 & echo $!"
         
         # Get verbosity level (default to 1 if not set)
         verbosity = self.get_verbosity()
@@ -100,15 +110,15 @@ class BashCommand:
             os.chdir(cwd)
 
         # Create a base arguments dictionary
-        run_args = {'shell': True, 'capture_output': True, 'text': True, 'executable': executable, 'cwd': cwd, 'user': user}
+        run_args = {'shell': True, 'capture_output': True, 'text': True, 'executable': executable, 'cwd': cwd, 'check': check, 'user': user}
                 
         # Update with custom arguments if provided
         if arguments is not None:
             run_args.update(arguments)
         
         try:
-            if verbosity == 0:
-                run_args = {'shell': True, 'capture_output': True, 'text': True, 'user':user, 'executable': executable, 'cwd': cwd, 'user': user}
+            if verbosity == 0 or not background:
+                run_args = {'shell': True, 'capture_output': True, 'text': True, 'user':user, 'executable': executable, 'cwd': cwd, 'check': check, 'user': user}
                 
                 # Update with custom arguments if provided
                 if arguments is not None:
@@ -267,17 +277,38 @@ class BashCommand:
             # Print output if requested
             if show_output:
                 print(f"{self.BLUE}    OUTPUT#{self.RESET} {(stdout_output + stderr_output).rstrip()}")
-                
-            # Check for errors if requested
-            if check and return_code != 0:
-                if verbosity > 0:
-                    if not show_output:
-                        print(f"{self.BLUE}ERR OUTPUT:{self.RESET} {self.RED}{(stdout_output + stderr_output).rstrip()}{self.RESET}")
-            
+                          
             # Print status based on verbosity
             if verbosity > 0:  # Only show status in verbose mode
                 if return_code == 0:
                     print(f"{self.GREEN}Command completed successfully{self.RESET}")
+            
+            # After command execution, perform assertions if requested
+            if assert_output is not None or assert_returncode is not None:
+                # For verbosity level 3, show that we're performing assertions
+                if verbosity == 3:
+                    print(f"{self.BLUE}    Performing assertions...{self.RESET}")
+                
+                # Check return code if specified
+                if assert_returncode is not None and return_code != assert_returncode:
+                    msg = assert_error_message or f"Command '{command}' returned {return_code}, expected {assert_returncode}"
+                    print(f"{self.RED}STDERR: {stderr_output}{self.RESET}")
+                    raise AssertionError(msg)
+                
+                # Check output if specified
+                if assert_output is not None:
+                    output = stdout_output.strip()
+                    if assert_regex:
+                        if not re.search(assert_output, output):
+                            msg = assert_error_message or f"Output of '{command}' did not match pattern '{assert_output}'"
+                            raise AssertionError(msg)
+                    else:
+                        if assert_output not in output:
+                            msg = assert_error_message or f"Output of '{command}' did not contain '{assert_output}'"
+                            raise AssertionError(msg)
+                
+                if verbosity == 3:
+                    print(f"{self.GREEN}    Assertions passed{self.RESET}")
             
             # Return combined output if requested
             if capture_output:
@@ -292,6 +323,17 @@ class BashCommand:
                 print(f"Command failed with return code = {self.RED}[{return_code}]{self.RESET}")
                 print(f"{self.BLUE}    ERR OUTPUT:{self.RESET} {self.RED}{(stdout_output + stderr_output).rstrip()}{self.RESET}")
             return return_code
+        
+        except AssertionError as ae:
+            # Handle assertion errors specially
+            print(f"{self.RED}Assertion failed: {ae}{self.RESET}")
+            if capture_output:
+                return f"AssertionError: {str(ae)}"
+            raise  # Re-raise the assertion error
+
+        except subprocess.CalledProcessError as e:
+            print(f"{self.RED}Command failed with return code {e.returncode}{self.RESET}")
+            raise
         
         except Exception as e:
             print(f"{self.RED}Error executing command: {e}{self.RESET}")
@@ -310,7 +352,7 @@ class BashCommand:
         
         :param message: The error message to display.
         """
-        self.cmd(f"echo -e '{self.RED}{message}{self.RESET}'", capture_output=False)
+        self.cmd(f"echo '{self.RED}{message}{self.RESET}'", capture_output=False)
     
     def warning(self, message):
         """
@@ -318,7 +360,7 @@ class BashCommand:
         
         :param message: The warning message to display.
         """
-        self.cmd(f"echo -e '{self.YELLOW}{message}{self.RESET}'", capture_output=False)
+        self.cmd(f"echo '{self.YELLOW}{message}{self.RESET}'", capture_output=False)
     
     def success(self, message):
         """
@@ -326,7 +368,7 @@ class BashCommand:
         
         :param message: The success message to display.
         """
-        self.cmd(f"echo -e '{self.GREEN}{message}{self.RESET}'", capture_output=False)
+        self.cmd(f"echo '{self.GREEN}{message}{self.RESET}'", capture_output=False)
     
     def info(self, message):
         """
@@ -334,7 +376,7 @@ class BashCommand:
         
         :param message: The info message to display.
         """
-        self.cmd(f"echo -e '{self.BLUE}{message}{self.RESET}'", capture_output=False)
+        self.cmd(f"echo '{self.BLUE}{message}{self.RESET}'", capture_output=False)
     
     def execute_in_directory(self, command, directory, show_output=True):
         """
