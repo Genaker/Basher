@@ -70,6 +70,9 @@ def install_php(php_ini_path):
     opcache.save_comments=1
     """
     bash.write_to_file(php_ini_path, settings, 'a')
+    bash.cmd("php -v", show_output=True)
+    print("Test Error output with the wrong command")
+    bash.cmd("php9 -v", show_output=True)
     bash.echo(f"PHP configured successfully in {php_ini_path}")
 
 
