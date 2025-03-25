@@ -19,16 +19,18 @@ def get_input(prompt, default):
     return response if response else default
 
 
-def install_php(php_ini_path):
+def install_php(php_ini_path, php_version="8.3"):
 
     bash.echo("install PHP...")
 
     bash.install("software-properties-common ");
     bash.cmd("add-apt-repository -y ppa:ondrej/php");
     bash.cmd("apt update");
-    bash.rm("/etc/php/8.3/cli/php.ini");
-    bash.rm("/etc/php/8.3/fpm/php.ini");
-    bash.install("php8.3 php8.3-fpm php8.3-cli php8.3-pdo php8.3-mysqlnd php8.3-redis php8.3-xml php8.3-soap php8.3-gd php8.3-zip php8.3-intl php8.3-mbstring php8.3-opcache php8.3-curl php8.3-bcmath php8.3-ldap php8.3-pgsql php8.3-dev php8.3-mongodb");
+    
+    bash.env_var("php_version", php_version)
+    bash.rm(f"/etc/php/{php_version}/cli/php.ini");
+    bash.rm(f"/etc/php/{php_version}/fpm/php.ini");
+    bash.install(f"php{php_version} php{php_version}-fpm php{php_version}-cli php{php_version}-pdo php{php_version}-mysqlnd php{php_version}-redis php{php_version}-xml php{php_version}-soap php{php_version}-gd php{php_version}-zip php{php_version}-intl php{php_version}-mbstring php{php_version}-opcache php{php_version}-curl php{php_version}-bcmath php{php_version}-ldap php{php_version}-pgsql php{php_version}-dev php{php_version}-mongodb");
     php_settings = """
     memory_limit = 2048M
     max_input_time = 600
@@ -41,19 +43,26 @@ def install_php(php_ini_path):
     opcache.interned_strings_buffer=32
     opcache.max_accelerated_files=32531
     opcache.save_comments=1"""
-    php_ini_fpm_path =  "/etc/php/8.3/fpm/php.ini"
-    php_ini_cli_path = "/etc/php/8.3/cli/php.ini"
+    php_ini_fpm_path =  f"/etc/php/{php_version}/fpm/php.ini"
+    php_ini_cli_path = f"/etc/php/{php_version}/cli/php.ini"
+    print(php_ini_fpm_path)
+    print(php_ini_cli_path)
     bash.write_to_file(php_ini_fpm_path, php_settings, 'a')
     php_settings_cli = "memory_limit = 2048M"
     bash.write_to_file(php_ini_cli_path, php_settings_cli, 'a')
-
+    bash.cmd("rm -rf /usr/bin/composer")
     bash.cmd("php -r \"copy('https://getcomposer.org/installer', 'composer-setup.php');\"")
     bash.cmd("php composer-setup.php")
     bash.cmd("php -r \"unlink('composer-setup.php');\"")
-    bash.cmd("mv composer.phar /usr/bin/composer")
+    cd=bash.cmd('pwd', capture_output=True).strip()
+    bash.cmd("ls")
+    bash.pwd()
+    print("Current directory:" + bash.working_dir)
+    bash.cmd(f"mv {cd}/composer.phar /usr/bin/composer")
+    bash.cmd("composer --version")
     bash.cmd("apt-get clean")
 
-    bash.echo(f"PHP configured successfully in {php_ini_path}")
+    bash.echo(f"PHP configured successfully in {php_ini_fpm_path}")
     
     """Configure PHP settings."""
     settings = """
@@ -69,11 +78,11 @@ def install_php(php_ini_path):
     opcache.max_accelerated_files=32531
     opcache.save_comments=1
     """
-    bash.write_to_file(php_ini_path, settings, 'a')
+    bash.write_to_file(php_ini_fpm_path, settings, 'a')
     bash.cmd("php -v", show_output=True)
     print("Test Error output with the wrong command")
     bash.cmd("php9 -v", show_output=True)
-    bash.echo(f"PHP configured successfully in {php_ini_path}")
+    bash.echo(f"PHP configured successfully in {php_ini_fpm_path}")
 
 
 def install_nginx(nginx_conf_path):
@@ -230,6 +239,88 @@ def install_redis():
     
     bash.echo("Redis installed and configured successfully", color="green")
 
+def install_mysql():
+    """Install and configure MySQL."""
+    #Setup MySQL
+    bash.install(["mysql-server"])
+    bash.cmd("service mysql start")
+    bash.cmd("mysql -e \"CREATE DATABASE magento; CREATE USER 'magento'@'localhost' IDENTIFIED BY 'magento'; GRANT ALL ON magento.* TO 'magento'@'localhost'; FLUSH PRIVILEGES;\"")
+    bash.cmd("mysql -e \"show databases\"")
+    bash.cmd("mysql -e \"SET GLOBAL log_bin_trust_function_creators = 1;\"")
+    bash.cmd("mysql -e \"select version()\"")
+
+
+def install_elsticsearch():
+    """Install and configure Elasticsearch."""
+    bash.cmd("pkill -u elasticsearch")
+    bash.rm("/var/lib/elasticsearch")
+    bash.rm("/etc/elasticsearch/")
+    bash.cmd("wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -")
+    if not bash.string_exists_in_file('/etc/apt/sources.list.d/elastic-7.x.list', "deb https://artifacts.elastic.co/packages/7.x/apt stable main"):
+        bash.cmd("echo \"deb https://artifacts.elastic.co/packages/7.x/apt stable main\" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list")
+    bash.cmd("apt update")
+    print(f"{bash.MAGENTA}Install Elasticsearch Version takes time please wait...{bash.RESET}")
+    bash.cmd("rm -rf  /var/lib/dpkg/info/elasticsearch.*")
+    bash.purge("elasticsearch")
+    bash.install("elasticsearch", check_installed=False)
+    bash.env_var("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
+
+    elastic_config = """
+xpack.security.enabled: false
+# Set the node name (optional, but useful for identification)
+node.name: "node-1"
+
+# Set the network host to bind to all interfaces or a specific IP
+network.host: 0.0.0.0
+
+# Set the HTTP port (default is 9200)
+http.port: 9200
+
+# Configure the node to be a single-node cluster
+cluster.name: "my-single-node-cluster"
+discovery.type: single-node
+"""
+
+    if not bash.string_exists_in_file("/etc/elasticsearch/elasticsearch.yml", "xpack.security.enabled: false"):
+        bash.write_to_file("/etc/elasticsearch/elasticsearch.yml", elastic_config, 'a')
+    if not bash.string_exists_in_file("/etc/elasticsearch/jvm.options", "-Xms2g"):
+        bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xms2g", 'a')
+        bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xmx2g", 'a')
+    # sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /dev/null 2>&1 &
+    bash.cmd("sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/elasticsearch/elasticsearch.log 2>&1 &")
+    bash.cmd("sleep 20")
+    test_elasticsearch = bash.cmd("curl -X GET \"localhost:9200\"", show_output=True, capture_output=True)
+    if test_elasticsearch != 0:
+        bash.echo("Elasticsearch installation failed")
+        bash.tail("/var/log/elasticsearch/elasticsearch.log")
+        exit(1)
+
+    
+def install_opensearch():
+    """Install and configure OpenSearch."""
+    #Setup OpenSearch
+    bash.env_var("OPENSEARCH_VERSION", "2.11.0")
+    bash.cmd('printenv')
+    bash.cmd("curl -o- https://artifacts.opensearch.org/publickeys/opensearch.pgp | sudo gpg --dearmor --batch --yes -o /usr/share/keyrings/opensearch-keyring")
+    bash.cmd("echo \"deb [signed-by=/usr/share/keyrings/opensearch-keyring] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main\" | sudo tee /etc/apt/sources.list.d/opensearch-2.x.list")
+    bash.cmd("apt update")
+    bash.cmd("apt list -a opensearch")
+    bash.echo("Install OpenSearch Version $OPENSEARCH_VERSION")
+    print(f"{bash.MAGENTA}Install OpenSearch Version takes time please wait...{bash.RESET}")
+    bash.install("opensearch=$OPENSEARCH_VERSION")
+    bash.rm("/var/lib/dpkg/info/opensearch.postinst")
+    # apt purge opensearch -y 
+    bash.write_to_file("/etc/opensearch/opensearch.yml", "plugins.security.disabled: true", 'a')
+    bash.write_to_file("/etc/opensearch/jvm.options", "-Xms1g", 'a')
+    bash.write_to_file("/etc/opensearch/jvm.options", "-Xmx1g", 'a')
+    bash.remove("rm /var/lib/dpkg/info/opensearch.postinst")
+    bash.cmd("/usr/share/opensearch/bin/opensearch > /dev/null 2>&1 &", user="opensearch")
+    bash.cmd("sleep 20")
+
+    # logs : cat  /etc/opensearch/opensearch.yml
+    bash.cmd("curl -X GET localhost:9200")
+
+
 
 def run_full_installation():
     """Run the full installation process."""
@@ -284,10 +375,11 @@ def interactive_menu(stdscr):
         "2. Install PHP",
         "3. Install Nginx",
         "4. Install PostgreSQL",
-        "5. Setup Redis",
-        "6. Setup OroCommerce",
-        "7. Run Full Installation",
-        "8. Exit"
+        "5. Install Redis",
+        "6. Install Elasticsearch",
+        "7. Setup OroCommerce",
+        "8. Run Full Installation",
+        "9. Exit"
     ]
     
     # Track visited menu items
@@ -310,13 +402,15 @@ def interactive_menu(stdscr):
         
         # Draw ASCII art
         ascii_art = [
-            "   ____  _____   ____   ____                                           ",
-            "  / __ \\|  __ \\ / __ \\ / ____| v6.0                                   ",
-            " | |  | | |__) | |  | | |     ___  _ __ ___  _ __ ___   ___ _ __ ___ ",
-            " | |  | |  _  /| |  | | |    / _ \\| '_ ` _ \\| '_ ` _ \\ / _ \\ '__/ __|",
-            " | |__| | | \\ \\| |__| | |___| (_) | | | | | | | | | |  __/ |  \\__ \\",
-            "  \\____/|_|  \\_\\\\____/ \\_____\\___/|_| |_| |_|_| |_| |_|\\___|_|  |___/"
-        ]
+"  ___   ____    ___    ____                                                    ",
+" / _ \ |  _ \  / _ \  / ___| ___   _ __ ___   _ __ ___    ___  _ __  ___  ___  ",
+"| | | || |_) || | | || |    / _ \ | '_ ` _ \ | '_ ` _ \  / _ \| '__|/ __|/ _ \\",
+"| |_| ||  _ < | |_| || |___| (_) || | | | | || | | | | ||  __/| |  | (__|  __/",
+" \___/ |_| \_\_\___/  \____|\___/_|_| |_| |_||_| |_| |_| \___||_|   \___|\___/",
+" / __| / _ \| '__|\ \ / // _ \| '__|                                            ",
+" \__ \|  __/| |    \ V /|  __/| |                                               ",
+" |___/ \___||_|     \_/  \___||_|   v6.0                                         "                                                                               
+]
 
         # Calculate ASCII art position
         art_y = max(0, menu_y - len(ascii_art) - 3)  # Position above the title
@@ -361,8 +455,11 @@ def interactive_menu(stdscr):
         # Refresh the screen
         stdscr.refresh()
         
-        # Get user input
-        key = stdscr.getch()
+        if inputs:
+            key = int(inputs)
+        else:
+            # Get user input
+            key = stdscr.getch()
         
         # Handle navigation
         if key == curses.KEY_UP and current_item > 0:
@@ -371,7 +468,7 @@ def interactive_menu(stdscr):
             current_item += 1
         elif key == curses.KEY_ENTER or key in [10, 13]:  # Enter key
             # If the user pressed Enter (selection)
-            if current_item == 7:  # Exit
+            if current_item == 8:  # Exit
                 return
             
             # Mark the item as visited
@@ -390,16 +487,20 @@ def interactive_menu(stdscr):
                 setup_postgresql(db_name, db_user, db_password)
             elif current_item == 4:  # Setup Redis
                 install_redis()
-            elif current_item == 5:  # Clone and Setup OroCommerce
+            elif current_item == 5:  # Install OpenSearch
+                install_elsticsearch()
+            elif current_item == 6:  # Clone and Setup OroCommerce
                 clone_and_setup_orocommerce(
                     repo_url, branch, install_dir, admin_user, admin_email, 
                     admin_firstname, admin_lastname, admin_password
                 )
-            elif current_item == 6:  # Run Full Installation
+            elif current_item == 7:  # Run Full Installation
                 run_full_installation()
                 # Mark all items as visited when running full installation
                 visited_items = [True] * (len(menu_items) - 1) + [False]  # All except Exit
-            
+            elif current_item == 8:
+                return
+                        
             # Wait for user to press a key before returning to the menu
             input("\nPress Enter to return to the menu...")
             
@@ -415,15 +516,18 @@ def interactive_menu(stdscr):
             curses.cbreak()
             stdscr.keypad(True)
             curses.curs_set(0)
-            
+        
         elif key == ord('q') or key == ord('Q'):
             return
-        elif key >= ord('1') and key <= ord('8'):
+        elif key >= ord('1') and key <= ord('9'):
             # Direct selection using number keys
             current_item = key - ord('1')
+        #if -i arguments are passed
+        elif inputs:
+            current_item = key - 1
             
             # If the user pressed Enter (selection)
-            if current_item == 7:  # Exit
+            if current_item == 8:  # Exit
                 return
             
             # Mark the item as visited
@@ -442,12 +546,14 @@ def interactive_menu(stdscr):
                 setup_postgresql(db_name, db_user, db_password)
             elif current_item == 4:  # Setup Redis
                 install_redis()
-            elif current_item == 5:  # Clone and Setup OroCommerce
+            elif current_item == 5:  # Install OpenSearch
+                install_elsticsearch()
+            elif current_item == 6:  # Clone and Setup OroCommerce
                 clone_and_setup_orocommerce(
                     repo_url, branch, install_dir, admin_user, admin_email, 
                     admin_firstname, admin_lastname, admin_password
                 )
-            elif current_item == 6:  # Run Full Installation
+            elif current_item == 7:  # Run Full Installation
                 run_full_installation()
                 # Mark all items as visited when running full installation
                 visited_items = [True] * (len(menu_items) - 1) + [False]  # All except Exit
@@ -475,6 +581,12 @@ def parse_args():
     # Add verbosity options
     parser.add_argument('-v', '--verbose', action='count', default=0,
                         help="Increase verbosity level (use -v, -vv, or -vvv for different levels)")
+     # Add no options
+    parser.add_argument('-n', '--no-inp', action='store_true',
+                        help="Run in non-interactive mode with default values")
+    
+    parser.add_argument('-i', '--inputs', action='store',
+                        help="Input")
     
     # Add no-interaction option
     parser.add_argument('--no-interaction', action='store_true',
@@ -490,7 +602,9 @@ def main():
     # Define global variables
     global php_ini_path, nginx_conf_path, db_name, db_user, db_password
     global repo_url, branch, install_dir, admin_user, admin_email, admin_firstname, admin_lastname, admin_password
-    global packages, bash
+    global packages, bash, inputs
+
+    inputs = args.inputs
 
     # Initialize Basher with verbosity level from command-line arguments
     bash = Basher()
@@ -499,12 +613,14 @@ def main():
     # -v = 1, -vv = 2, -vvv = 3
     verbosity_level = min(args.verbose, 3)  # Cap at level 3
     bash.set_verbosity(verbosity_level)
+
+    no_inp = args.no_inp
     
     if verbosity_level > 0:
         print(f"Verbosity level set to {verbosity_level}")
 
     # Use default values for non-interactive mode
-    php_ini_path = "/etc/php/8.3/fpm/php.ini"
+    php_ini_path = "/etc/php/8.2/fpm/php.ini"
     nginx_conf_path = "/etc/nginx/conf.d/default.conf"
     db_name = "oro"
     db_user = "postgres"
@@ -522,21 +638,22 @@ def main():
     if args.no_interaction:
         run_full_installation()
     else:
-        # Interactive mode
-        # php_ini_path = get_input("Enter PHP INI path", php_ini_path)
-        # nginx_conf_path = get_input("Enter Nginx config path", nginx_conf_path)
-        db_name = get_input("Enter database name", db_name)
-        db_user = get_input("Enter database user", db_user)
-        db_password = get_input("Enter database password", db_password)
-        repo_url = get_input("Enter repository URL", repo_url)
-        branch = get_input("Enter branch name", branch)
-        install_dir = get_input("Enter installation directory", install_dir)
-        admin_user = get_input("Enter admin username", admin_user)
-        admin_email = get_input("Enter admin email", admin_email)
-        admin_firstname = get_input("Enter admin first name", admin_firstname)
-        admin_lastname = get_input("Enter admin last name", admin_lastname)
-        admin_password = get_input("Enter admin password", admin_password)
-        packages = get_input("Enter packages to install", packages)
+        if not no_inp:
+            # Interactive mode
+            # php_ini_path = get_input("Enter PHP INI path", php_ini_path)
+            # nginx_conf_path = get_input("Enter Nginx config path", nginx_conf_path)
+            db_name = get_input("Enter database name", db_name)
+            db_user = get_input("Enter database user", db_user)
+            db_password = get_input("Enter database password", db_password)
+            repo_url = get_input("Enter repository URL", repo_url)
+            branch = get_input("Enter branch name", branch)
+            install_dir = get_input("Enter installation directory", install_dir)
+            admin_user = get_input("Enter admin username", admin_user)
+            admin_email = get_input("Enter admin email", admin_email)
+            admin_firstname = get_input("Enter admin first name", admin_firstname)
+            admin_lastname = get_input("Enter admin last name", admin_lastname)
+            admin_password = get_input("Enter admin password", admin_password)
+            packages = get_input("Enter packages to install", packages)                     
         
         curses.wrapper(interactive_menu)
 

@@ -49,7 +49,7 @@ class SystemOps(BashCommand):
             
         return self.package_manager
     
-    def install(self, packages):
+    def install(self, packages, check_installed=True):
         """
         Install packages using the system's package manager.
         
@@ -63,6 +63,12 @@ class SystemOps(BashCommand):
         # Convert string to list if a single package is provided
         if isinstance(packages, str):
             packages = [packages]
+
+        if check_installed:
+            for package in packages:
+                if self.cmd(f"apt list --installed | grep {package}", show_output=False, check=False) == 0:
+                    self.info(f"{package} is already installed")
+                    return True
         
         # Convert list to space-separated string
         packages_str = " ".join(packages)
@@ -88,6 +94,18 @@ class SystemOps(BashCommand):
         except Exception as e:
             self.error(f"Failed to install packages: {e}")
             return False
+    
+    def purge(self, software):
+        """
+        Remove a package from the system using apt-get purge.
+
+        :param software: Name of the software package to remove.
+        """
+        try:
+            # Run the apt-get purge command
+            return self.cmd(f"sudo apt-get purge -y {software}*", check=True)
+        except Exception as e:
+            self.error(f"Failed to purge {software}. Error: {e}")
     
     def cd(self, directory_path):
         """
@@ -141,19 +159,19 @@ class SystemOps(BashCommand):
         
         try:
             if os.path.isfile(path) or os.path.islink(path):
-                result = subprocess.run(f"rm '{path}'", shell=True)
+                result = subprocess.run(f"rm {path}", shell=True)
                 return result.returncode == 0
             elif os.path.isdir(path):
                 if recursive:
-                    result = subprocess.run(f"rm -rf '{path}'", shell=True)
+                    result = subprocess.run(f"rm -rf {path}", shell=True)
                     return result.returncode == 0
                 else:
                     # Try to remove an empty directory
-                    result = subprocess.run(f"rmdir '{path}' 2>/dev/null", shell=True)
+                    result = subprocess.run(f"rmdir {path} 2>/dev/null", shell=True)
                     return result.returncode == 0
             return False
         except Exception as e:
-            self.error(f"Failed to remove path: {e}")
+            print(f"Failed to remove path: {e}")
             return False
     
     def ensure_sudo(self):

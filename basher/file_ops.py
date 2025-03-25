@@ -24,7 +24,31 @@ class FileOps(BashCommand):
         
         redirect = '>' if mode == 'w' else '>>'
         return self.cmd(f"echo '{content}' {redirect} {file_path}") is not None
-    
+
+    def string_exists_in_file(self, file_path, search_string):
+        """
+        Count the number of lines containing the search string in a file.
+
+        :param file_path: Path to the file to search.
+        :param search_string: String to search for in the file.
+        :return: The number of lines containing the search string.
+        """
+        count = 0
+        print(f"Searching for '{search_string}' in '{file_path}'")
+        try:
+            with open(file_path, 'r') as file:
+                for line in file:
+                    # Use case-insensitive search
+                    if search_string.lower() in line.lower():
+                        print(f"Found")
+                        return True
+        except FileNotFoundError:
+            print(f"File not found: {file_path}")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        print(f"No Found")
+        return False
+
     def read_file(self, file_path):
         """
         Read the contents of a file.
@@ -202,6 +226,10 @@ class FileOps(BashCommand):
         except Exception as e:
             self.error(f"Failed to find files: {e}")
             return None
+    
+    def tail(self, file_path, n=20):
+        """Tail file"""
+        self.cmd(f"tail -n {n} {file_path}", show_output=True);
 
     def exists(self, path):
         """

@@ -34,6 +34,14 @@ class Basher(BashCommand):
         """Replace lines in a file that match a pattern."""
         return self.file.replace_in_file(file_path, start_pattern, new_string)
     
+    def string_exists_in_file(self, file_path, search_string):
+        """Check if a string exists in a file."""
+        return self.file.string_exists_in_file(file_path, search_string)
+    
+    def tail(self, file_path, n=20):
+        """Tail a file."""
+        return self.file.tail(file_path, n)
+    
     def string_in_file(self, file_path, search_string):
         """Check if a string exists in a file."""
         return self.file.string_in_file(file_path, search_string)
@@ -71,9 +79,13 @@ class Basher(BashCommand):
         """Detect the system's package manager."""
         return self.system.detect_package_manager()
     
-    def install(self, packages):
+    def install(self, packages, check_installed=True):
         """Install packages using the system's package manager."""
-        return self.system.install(packages)
+        return self.system.install(packages, check_installed)
+    
+    def purge(self, software):
+        """Remove pakage"""
+        return self.system.purge(software);
     
     def cd(self, directory_path):
         """Change the current working directory."""
@@ -156,7 +168,7 @@ class Basher(BashCommand):
         # Handle the end parameter
         if end == '\n':
             # Standard newline behavior
-            cmd_str = f"echo {e_flag} '{escaped_message}'"
+            cmd_str = f"echo {e_flag} \"{escaped_message}\""
         else:
             # Custom end character - suppress newline and add custom end
             escaped_end = end.replace("'", "'\\''")

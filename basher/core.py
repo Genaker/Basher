@@ -30,7 +30,10 @@ class BashCommand:
     current_user = None
      # Default to not show output you can set it to True to show output by default
     show_output = False
-
+    # Default to not raise an exception
+    raise_exception = False
+    # Output file
+    output_file = None
     def __init__(self, working_dir=None):
         """Initialize the BashCommand object.
         :param working_dir: The working directory to use for the commands by default it will use the current directory if not set.
@@ -66,6 +69,11 @@ class BashCommand:
         :return: The command output if capture_output is True, otherwise the return code.
         :raises AssertionError: If any assertion fails.
         """
+        # Get verbosity level (default to 1 if not set)
+        verbosity = self.get_verbosity()
+        if verbosity > 2:
+            print(f"{self.GREEN}>------------------------------------------------------------------------------------------------------------------<{self.RESET}")
+        
         import time
         import re
         
@@ -77,14 +85,14 @@ class BashCommand:
         if user is None:
             user = self.current_user
 
+        env_vars = os.environ.copy()
+
         if bashrc:
             command = f"source ~/.bashrc && {command}"
         
         if background:
             command = f"{command} >/dev/null 2>&1 & echo $!"
         
-        # Get verbosity level (default to 1 if not set)
-        verbosity = self.get_verbosity()
         result = None
      
         # If cwd is provided, temporarily change to that directory
@@ -103,38 +111,44 @@ class BashCommand:
         if verbosity == 3:
             # Print positional arguments
             print(f"{self.BLUE}    Arguments->{self.RESET} show_output:{show_output}, capture_output:{capture_output}, user:{user}, check:{check}, cwd:{cwd}, detect_input_prompt:{detect_input_prompt}, bashrc:{bashrc}, executable:{executable}")
-
+        if self.output_file:
+            with open(self.output_file, 'w') as f:
+                f.write(f"{self.BLUE}    Arguments->{self.RESET} show_output:{show_output}, capture_output:{capture_output}, user:{user}, check:{check}, cwd:{cwd}, detect_input_prompt:{detect_input_prompt}, bashrc:{bashrc}, executable:{executable}")
+                f.write(f"{self.YELLOW}CMD#{self.RESET} {command}\n")
    
         if cwd:
             original_dir = os.getcwd()
             os.chdir(cwd)
 
         # Create a base arguments dictionary
-        run_args = {'shell': True, 'capture_output': True, 'text': True, 'executable': executable, 'cwd': cwd, 'check': check, 'user': user}
-                
+        run_args = {'shell': True, 'capture_output': True, 'env': env_vars, 'text': True, 'executable': executable, 'cwd': cwd, 'check': check, 'user': user}
+
         # Update with custom arguments if provided
         if arguments is not None:
             run_args.update(arguments)
         
         try:
             if verbosity == 0 or not background:
-                run_args = {'shell': True, 'capture_output': True, 'text': True, 'user':user, 'executable': executable, 'cwd': cwd, 'check': check, 'user': user}
-                
                 # Update with custom arguments if provided
                 if arguments is not None:
                     run_args.update(arguments)
                     
                 # Run the command with the arguments
                 result = subprocess.run(command, **run_args)
+            
+            if verbosity > 2:
+                subprocess.run(f"echo \"{self.BLUE}Running command:{self.RESET} {self.BOLD}{command}{self.RESET}\"", shell=True)
+              
                 
             # out put live progress if verbosity is greater than 0
             if verbosity > 0:
-                
-                run_args = {'shell': True, 'user':user, 'stdout': subprocess.PIPE, 'stderr': subprocess.PIPE, 'text': True, 'bufsize': 1, 'executable': executable, 'cwd': cwd, 'user': user}
+                # Popen has different arguments than run
+                run_args = {'shell': True, 'user':user, 'env': env_vars, 'stdout': subprocess.PIPE, 'stderr': subprocess.PIPE, 'text': True, 'bufsize': 1, 'executable': executable, 'cwd': cwd, 'user': user}
                 
                 # Update with custom arguments if provided
                 if arguments is not None:
                     run_args.update(arguments)
+                  
                 # Use subprocess.Popen for better control over output
                 process = subprocess.Popen(
                     command,
@@ -169,6 +183,10 @@ class BashCommand:
                         # Only show output if verbosity level allows it or show_output is True
                         if verbosity > 0 or show_output:
                             print(f'{self.BLUE}     STDOUT#{self.RESET} {stdout_line.rstrip()}')
+                        
+                        if self.output_file:
+                            with open(self.output_file, 'a') as f:
+                                f.write(f'O#{stdout_line.rstrip()}\n')
             
                         if capture_output:
                             stdout_output += stdout_line
@@ -195,6 +213,10 @@ class BashCommand:
                     # Read a line from stderr
                     stderr_line = process.stderr.readline()
                     if stderr_line:
+                        if self.output_file:
+                            with open(self.output_file, 'a') as f:
+                                f.write(f'E#{stderr_line.rstrip()}\n')
+                                
                         if verbosity > 0:
                             print(f'{self.BLUE}     STDERR#{self.RESET} {self.RED}{stderr_line.rstrip()}{self.RESET}')
                         # Only show errors if verbosity level allows it
@@ -332,8 +354,13 @@ class BashCommand:
             raise  # Re-raise the assertion error
 
         except subprocess.CalledProcessError as e:
+            print(f"Exception: {e}")
             print(f"{self.RED}Command failed with return code {e.returncode}{self.RESET}")
-            raise
+            print(f"{self.RED}Command failed with output: {e.stderr}{self.RESET}")
+            if self.raise_exception:
+                raise
+            else:
+                return 1
         
         except Exception as e:
             print(f"{self.RED}Error executing command: {e}{self.RESET}")
@@ -607,3 +634,19 @@ class BashCommand:
         :return: The current verbosity level
         """
         return int(os.environ.get('BASHER_VERBOSITY', 0))
+    
+    def set_raise_exception(self, raise_exception=True):
+        """
+        Set whether to raise an exception when an error occurs.
+        
+        :param raise_exception: Whether to raise an exception (default: True)
+        """
+        self.raise_exception = raise_exception
+    
+    def exception(self, raise_exception=True):
+        """
+        Set whether to raise an exception when an error occurs.
+        
+        :param raise_exception: Whether to raise an exception (default: True)
+        """
+        self.set_raise_exception(raise_exception)
