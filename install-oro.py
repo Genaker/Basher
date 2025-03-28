@@ -10,7 +10,7 @@ import curses
 import sys
 import os
 import re
-from basher import Basher
+from basher import Basher, SupervisorD
 import argparse
 
 def get_input(prompt, default):
@@ -227,7 +227,95 @@ def install_packages(packages):
     bash.install(['sudo'])
     bash.install(packages)
     bash.echo(f"Packages installed successfully: {', '.join(packages)}")
+    install_supervisord_for_orocommerce()
 
+def install_supervisord_for_orocommerce():
+    """Install and configure Supervisor."""
+    # sudo netstat -tuln
+    bash.supervisor.status()
+    bash.cmd("supervisorctl shutdown", user="root")
+    bash.cmd("sleep 1")
+    bash.cmd("service --status-all")
+    bash.cmd("chown www-data:www-data /var/log/php8.2-fpm.log")
+    bash.cmd("chmod -R 755 /var/log/")
+    bash.cmd("pip3 install supervisor")
+    bash.cmd("rm -rf /etc/supervisord.conf")
+    bash.cmd("echo_supervisord_conf > /etc/supervisord.conf")
+    bash.rm("/etc/test.conf")
+    bash.cmd("touch /etc/test.conf")
+    bash.write_to_file("/etc/test.conf", "user=www-data", 'a')
+
+    nginx_conf = """
+[program:nginx]
+command=/usr/sbin/nginx -g "daemon off;"
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/nginx-supervisor_error.log
+stdout_logfile=/var/log/ngin-supervisor_output.log
+    """
+    bash.write_to_file("/etc/supervisord.conf", nginx_conf, 'a')
+
+    php_fpm_conf = """
+[program:php-fpm]
+command=/usr/sbin/php-fpm8.2 --nodaemonize 
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/php-fpm-supervisor_error.log
+stdout_logfile=/var/log/php-fpm-supervisor_output.log
+user=www-data
+    """
+    bash.write_to_file("/etc/supervisord.conf", php_fpm_conf, 'a')
+    
+    redis_conf = """
+[program:redis-server]
+command=/usr/bin/redis-server  /etc/redis/redis.conf --daemonize no
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/redis-supervisor_error.log
+stdout_logfile=/var/log/redis-supervisor_output.log
+    """
+    bash.write_to_file("/etc/supervisord.conf", redis_conf, 'a')
+
+    elasticsearch_conf = """
+[program:elasticsearch]
+command=/usr/share/elasticsearch/bin/elasticsearch
+user=elasticsearch
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/elasticsearch-supervisor_error.log
+stdout_logfile=/var/log/elasticsearch-supervisor_output.log
+    """
+    bash.write_to_file("/etc/supervisord.conf", elasticsearch_conf, 'a')
+
+    postgres_conf = """
+[program:postgres]
+#command=/usr/lib/postgresql/14/bin/postgres -D /var/lib/postgresql/14/main
+command=service postgresql start
+autostart=true
+autorestart=false
+stderr_logfile=/var/log/postgres-supervisor_error.log
+stdout_logfile=/var/log/postgres-supervisor_output.log
+    """
+    ## You will have error when status but it is ok. I don't find how to run postgres in foreground.
+    # postgres                         FATAL     Exited too quickly (process log may have details)
+    bash.write_to_file("/etc/supervisord.conf", postgres_conf, 'a')
+
+    if True:
+        mysql_conf = """
+[program:mysql]
+command=/usr/sbin/mysqld
+user=mysql
+autostart=true
+autorestart=false
+stderr_logfile=/var/log/mysql-supervisor_error.log
+stdout_logfile=/var/log/mysql-supervisor_output.log
+    """
+        ## You will have error when status but it is ok. I don't find how to run postgres in foreground.
+        # postgres                         FATAL     Exited too quickly (process log may have details)
+        bash.write_to_file("/etc/supervisord.conf", mysql_conf, 'a')
+
+    bash.cmd("supervisord -c /etc/supervisord.conf")
+    bash.cmd("supervisorctl status")
 
 def install_redis():
     """Install and configure Redis."""
@@ -287,7 +375,8 @@ discovery.type: single-node
         bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xms2g", 'a')
         bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xmx2g", 'a')
     # sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /dev/null 2>&1 &
-    bash.cmd("sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/elasticsearch/elasticsearch.log 2>&1 &")
+    #bash.cmd("sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/#elasticsearch/elasticsearch.log 2>&1 &")
+    bash.cmd("service elasticsearch start")
     bash.cmd("sleep 20")
     test_elasticsearch = bash.cmd("curl -X GET \"localhost:9200\"", show_output=True, capture_output=True)
     if test_elasticsearch != 0:
@@ -349,6 +438,18 @@ def run_full_installation():
     
     bash.echo("Full installation completed successfully!")
 
+def initialize_curses():
+    """Initialize curses."""
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
+    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.noecho()
+    curses.cbreak()
+    curses.curs_set(0)
+    return curses
 
 def interactive_menu(stdscr):
     """Interactive menu for installation."""
@@ -500,22 +601,19 @@ def interactive_menu(stdscr):
                 visited_items = [True] * (len(menu_items) - 1) + [False]  # All except Exit
             elif current_item == 8:
                 return
-                        
-            # Wait for user to press a key before returning to the menu
-            input("\nPress Enter to return to the menu...")
+
+            if not inputs and not no_interaction:    
+                # Wait for user to press a key before returning to the menu
+                input("\nPress Enter to return to the menu...")
+            else:
+                #curses.endwin()
+                exit()
             
             # Reinitialize curses
             stdscr = curses.initscr()
-            curses.start_color()
-            curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
-            curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)
-            curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-            curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.noecho()
-            curses.cbreak()
             stdscr.keypad(True)
-            curses.curs_set(0)
+
+            initialize_curses()
         
         elif key == ord('q') or key == ord('Q'):
             return
@@ -558,21 +656,17 @@ def interactive_menu(stdscr):
                 # Mark all items as visited when running full installation
                 visited_items = [True] * (len(menu_items) - 1) + [False]  # All except Exit
             
-            # Wait for user to press a key before returning to the menu
-            input("\nPress Enter to return to the menu...")
+            if not inputs and not no_interaction:
+                # Wait for user to press a key before returning to the menu
+                input("\nPress Enter to return to the menu...")
+            else:
+                #curses.endwin()
+                exit()
             
             # Reinitialize curses
             stdscr = curses.initscr()
-            curses.start_color()
-            curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
-            curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)
-            curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-            curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.noecho()
-            curses.cbreak()
             stdscr.keypad(True)
-            curses.curs_set(0)
+            initialize_curses()
 
 def parse_args():
     """Parse command-line arguments."""
@@ -602,7 +696,7 @@ def main():
     # Define global variables
     global php_ini_path, nginx_conf_path, db_name, db_user, db_password
     global repo_url, branch, install_dir, admin_user, admin_email, admin_firstname, admin_lastname, admin_password
-    global packages, bash, inputs
+    global packages, bash, inputs, no_interaction
 
     inputs = args.inputs
 
@@ -636,6 +730,7 @@ def main():
     packages = ["curl", "nano", "wget", "htop", "net-tools", "git", "rsync", "python3", "python3-pip"]
 
     if args.no_interaction:
+        no_interaction = True
         run_full_installation()
     else:
         if not no_inp:

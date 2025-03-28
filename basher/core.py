@@ -84,6 +84,8 @@ class BashCommand:
             cwd = self.working_dir
         if user is None:
             user = self.current_user
+        if user == "sudo":
+            user = "root"
 
         env_vars = os.environ.copy()
 
@@ -137,7 +139,8 @@ class BashCommand:
                 result = subprocess.run(command, **run_args)
             
             if verbosity > 2:
-                subprocess.run(f"echo \"{self.BLUE}Running command:{self.RESET} {self.BOLD}{command}{self.RESET}\"", shell=True)
+                print(f"{self.BLUE}Running command:{self.RESET} {self.BOLD}{command}{self.RESET}")
+                #subprocess.run(f"echo \"{self.BLUE}Running command:{self.RESET} {self.BOLD}{command}{self.RESET}\"", shell=True)
               
                 
             # out put live progress if verbosity is greater than 0

@@ -9,6 +9,7 @@ from .core import BashCommand
 from .file_ops import FileOps
 from .system_ops import SystemOps
 from .archive_ops import ArchiveOps
+from .supervisord import SupervisorD
 
 class Basher(BashCommand):
     """
@@ -20,7 +21,8 @@ class Basher(BashCommand):
         self.file = FileOps(working_dir)
         self.system = SystemOps(working_dir, self.file)
         self.archive_ops = ArchiveOps(self.system)
-    
+        self.supervisor = SupervisorD()
+        
     # File operations
     def write_to_file(self, file_path, content, mode='w'):
         """Write content to a file."""

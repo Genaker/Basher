@@ -22,8 +22,12 @@ class FileOps(BashCommand):
         if mode not in ['w', 'a']:
             raise ValueError("Mode must be 'w' (write) or 'a' (append)")
         
-        redirect = '>' if mode == 'w' else '>>'
-        return self.cmd(f"echo '{content}' {redirect} {file_path}") is not None
+        if mode == 'w':
+            redirect = '>'
+        else:
+            redirect = '>>'
+        print(f"{self.YELLOW}CMD#{self.RESET} echo '{content}' {redirect} {file_path}")
+        return subprocess.run(f"echo '{content}' {redirect} {file_path}", shell=True)
 
     def string_exists_in_file(self, file_path, search_string):
         """

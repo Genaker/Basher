@@ -6,6 +6,7 @@ making it easier to perform common file and system operations in Python.
 """
 
 from .basher import Basher
+from .supervisord import SupervisorD
 
 # Create a default instance for backward compatibility
 _default_instance = Basher()
