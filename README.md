@@ -431,19 +431,21 @@ docker compose run --rm oro-install --no-interaction   # full install (non-inter
 | `-v`, `--verbose` | Increase verbosity |
 | `-n`, `--no-inp` | No input mode |
 
-### Manual testing in Docker
+### Interactive mode (bash inside container) Manualy Test in Docker
 
-Bash into the container and run the script manually:
+To get a shell inside the container and run the install script manually:
 
 ```bash
-# 1. Start a shell inside the container (overrides default entrypoint)
+# 1. Start interactive bash (overrides default entrypoint)
 docker compose run --rm --entrypoint bash oro-install
 
-# 2. Inside the container, run the install script:
-python3 install-oro.py                    # interactive menu
+# 2. You are now inside the container. Run the install script:
+python3 install-oro.py                    # interactive menu (choose steps)
 python3 install-oro.py --no-interaction   # full install
 python3 install-oro.py -i 8               # run step 8 only
 ```
+
+You can also run other commands (e.g. `apt list`, `php -v`) before or after the install.
 
 **Note:** The project is mounted at `/app`, so code changes are reflected immediately without rebuilding.
 
