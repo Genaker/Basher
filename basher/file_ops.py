@@ -4,6 +4,7 @@ import os
 import subprocess
 import re
 from .core import BashCommand
+from .shell_utils import quote
 
 class FileOps(BashCommand):
     """
@@ -13,6 +14,7 @@ class FileOps(BashCommand):
     def write_to_file(self, file_path, content, mode='w'):
         """
         Write content to a file.
+        Uses Python I/O to avoid shell injection (handles newlines, quotes, etc).
         
         :param file_path: Path to the file.
         :param content: Content to write.
@@ -22,12 +24,13 @@ class FileOps(BashCommand):
         if mode not in ['w', 'a']:
             raise ValueError("Mode must be 'w' (write) or 'a' (append)")
         
-        if mode == 'w':
-            redirect = '>'
-        else:
-            redirect = '>>'
-        print(f"{self.YELLOW}CMD#{self.RESET} echo '{content}' {redirect} {file_path}")
-        return subprocess.run(f"echo '{content}' {redirect} {file_path}", shell=True)
+        try:
+            with open(file_path, mode) as f:
+                f.write(content)
+            return True
+        except Exception as e:
+            self.error(f"Failed to write file: {e}")
+            return False
 
     def string_exists_in_file(self, file_path, search_string):
         """
@@ -55,7 +58,7 @@ class FileOps(BashCommand):
 
     def read_file(self, file_path):
         """
-        Read the contents of a file.
+        Read the contents of a file (equivalent to cat).
         
         :param file_path: Path to the file.
         :return: The file contents as a string, or None if the file doesn't exist.
@@ -63,8 +66,13 @@ class FileOps(BashCommand):
         if not self.exists(file_path):
             self.error(f'File "{file_path}" does not exist')
             return None
-        
-        return self.cmd(f"cat '{file_path}'", capture_output=True, show_output=False)
+
+        try:
+            with open(file_path) as f:
+                return f.read()
+        except Exception as e:
+            self.error(f"Failed to read file: {e}")
+            return None
     
     def replace_in_file(self, file_path, start_pattern, new_string):
         """
@@ -85,7 +93,7 @@ class FileOps(BashCommand):
         
         try:
             # Use sed with a different delimiter (|) to avoid issues with slashes in the pattern or replacement
-            cmd = f"sed -i 's|^{escaped_pattern}.*|{escaped_new_string}|' '{file_path}'"
+            cmd = f"sed -i 's|^{escaped_pattern}.*|{escaped_new_string}|' {quote(file_path)}"
             return self.cmd(cmd) is not None
         except Exception as e:
             self.error(f"Failed to replace in file: {e}")
@@ -106,7 +114,7 @@ class FileOps(BashCommand):
         
         try:
             recursive_flag = "-R" if recursive else ""
-            return self.cmd(f"chmod {recursive_flag} {permissions} '{path}'") is not None
+            return self.cmd(f"chmod {recursive_flag} {permissions} {quote(path)}") is not None
         except Exception as e:
             self.error(f"Failed to change permissions: {e}")
             return False
@@ -126,7 +134,7 @@ class FileOps(BashCommand):
         
         owner = user if group is None else f"{user}:{group}"
         try:
-            return self.cmd(f"chown {owner} '{path}'") is not None
+            return self.cmd(f"chown {owner} {quote(path)}") is not None
         except Exception as e:
             self.error(f"Failed to change ownership: {e}")
             return False
@@ -143,14 +151,9 @@ class FileOps(BashCommand):
             self.error(f"File '{file_path}' does not exist or is not a file")
             return False
         
-        # Escape special characters in the search string
-        escaped_search = search_string.replace("'", "'\\''")
-        
-        # Use grep to search for the string
+        # Use grep to search for the string (quote prevents injection)
         try:
-            # Use -q for quiet mode (no output, just return code)
-            # grep returns 0 if the string is found, 1 if not found
-            result = subprocess.run(f"grep -q '{escaped_search}' '{file_path}'", shell=True)
+            result = subprocess.run(f"grep -q {quote(search_string)} {quote(file_path)}", shell=True)
             return result.returncode == 0
         except Exception:
             # If the command fails for any reason, return False
@@ -171,17 +174,14 @@ class FileOps(BashCommand):
         
         try:
             if os.path.isfile(source):
-                # Copy a file
-                result = subprocess.run(f"cp '{source}' '{destination}'", shell=True)
+                result = subprocess.run(f"cp {quote(source)} {quote(destination)}", shell=True)
                 return result.returncode == 0
             elif os.path.isdir(source):
                 if recursive:
-                    # Copy a directory recursively
-                    result = subprocess.run(f"cp -r '{source}' '{destination}'", shell=True)
+                    result = subprocess.run(f"cp -r {quote(source)} {quote(destination)}", shell=True)
                     return result.returncode == 0
                 else:
-                    # Create the destination directory and copy contents
-                    result = subprocess.run(f"mkdir -p '{destination}'", shell=True)
+                    result = subprocess.run(f"mkdir -p {quote(destination)}", shell=True)
                     return result.returncode == 0
             else:
                 self.error(f"Source '{source}' is neither a file nor a directory")
@@ -203,7 +203,7 @@ class FileOps(BashCommand):
             return False
         
         try:
-            result = subprocess.run(f"mv '{source}' '{destination}'", shell=True)
+            result = subprocess.run(f"mv {quote(source)} {quote(destination)}", shell=True)
             return result.returncode == 0
         except Exception as e:
             self.error(f"Failed to move: {e}")
@@ -222,7 +222,7 @@ class FileOps(BashCommand):
             return None
         
         try:
-            result = self.cmd(f"find '{directory}' -name '{pattern}'", show_output=False)
+            result = self.cmd(f"find {quote(directory)} -name {quote(pattern)}", show_output=False)
             if result:
                 return result.strip().split('\n')
             else:
@@ -233,7 +233,7 @@ class FileOps(BashCommand):
     
     def tail(self, file_path, n=20):
         """Tail file"""
-        self.cmd(f"tail -n {n} {file_path}", show_output=True);
+        self.cmd(f"tail -n {n} {quote(file_path)}", show_output=True);
 
     def exists(self, path):
         """
@@ -242,7 +242,7 @@ class FileOps(BashCommand):
         :param path: Path to check.
         :return: True if the path exists, False otherwise.
         """
-        result = subprocess.run(f"[ -e '{path}' ]", shell=True)
+        result = subprocess.run(f"[ -e {quote(path)} ]", shell=True)
         return result.returncode == 0
     
     def folder_exists(self, path):
@@ -252,5 +252,5 @@ class FileOps(BashCommand):
         :param path: Path to check.
         :return: True if the directory exists, False otherwise.
         """
-        result = subprocess.run(f"[ -d '{path}' ]", shell=True)
+        result = subprocess.run(f"[ -d {quote(path)} ]", shell=True)
         return result.returncode == 0 

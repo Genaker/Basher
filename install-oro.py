@@ -23,14 +23,22 @@ def install_php(php_ini_path, php_version="8.3"):
 
     bash.echo("install PHP...")
 
-    bash.install("software-properties-common ");
-    bash.cmd("add-apt-repository -y ppa:ondrej/php");
-    bash.cmd("apt update");
+    bash.install("software-properties-common")
+    bash.add_apt_repository("ppa:ondrej/php")
+    bash.cmd("apt update")
     
     bash.env_var("php_version", php_version)
     bash.rm(f"/etc/php/{php_version}/cli/php.ini");
     bash.rm(f"/etc/php/{php_version}/fpm/php.ini");
-    bash.install(f"php{php_version} php{php_version}-fpm php{php_version}-cli php{php_version}-pdo php{php_version}-mysqlnd php{php_version}-redis php{php_version}-xml php{php_version}-soap php{php_version}-gd php{php_version}-zip php{php_version}-intl php{php_version}-mbstring php{php_version}-opcache php{php_version}-curl php{php_version}-bcmath php{php_version}-ldap php{php_version}-pgsql php{php_version}-dev php{php_version}-mongodb");
+    bash.install([
+        f"php{php_version}", f"php{php_version}-fpm", f"php{php_version}-cli",
+        f"php{php_version}-pdo", f"php{php_version}-mysqlnd", f"php{php_version}-redis",
+        f"php{php_version}-xml", f"php{php_version}-soap", f"php{php_version}-gd",
+        f"php{php_version}-zip", f"php{php_version}-intl", f"php{php_version}-mbstring",
+        f"php{php_version}-opcache", f"php{php_version}-curl", f"php{php_version}-bcmath",
+        f"php{php_version}-ldap", f"php{php_version}-pgsql", f"php{php_version}-dev",
+        f"php{php_version}-mongodb"
+    ])
     php_settings = """
     memory_limit = 2048M
     max_input_time = 600
@@ -80,8 +88,6 @@ def install_php(php_ini_path, php_version="8.3"):
     """
     bash.write_to_file(php_ini_fpm_path, settings, 'a')
     bash.cmd("php -v", show_output=True)
-    print("Test Error output with the wrong command")
-    bash.cmd("php9 -v", show_output=True)
     bash.echo(f"PHP configured successfully in {php_ini_fpm_path}")
 
 
@@ -112,7 +118,7 @@ server {
         fastcgi_param HTTPS off;
     }
 
-    location ~* ^[^(\.php)]+\\.(jpg|jpeg|gif|png|ico|css|pdf|ppt|txt|bmp|rtf|js)$ {
+    location ~* ^[^(\\.php)]+\\.(jpg|jpeg|gif|png|ico|css|pdf|ppt|txt|bmp|rtf|js)$ {
         access_log off;
         expires 1h;
         add_header Cache-Control public;
@@ -130,7 +136,7 @@ def setup_postgresql(db_name, db_user, db_password):
     """Setup PostgreSQL database."""
     bash.echo("Setup PostgreSQL database...")
     bash.install(["postgresql", "postgresql-contrib"])
-    bash.cmd("sudo service postgresql start")
+    bash.service_start("postgresql")
     bash.cmd(f"sudo -u postgres psql -c \"DROP DATABASE IF EXISTS {db_name};\"")
     bash.cmd(f"sudo -u postgres psql -c \"CREATE DATABASE {db_name};\"")
     bash.cmd(f"sudo -u postgres psql -c \"ALTER USER {db_user} WITH PASSWORD '{db_password}';\"")
@@ -171,9 +177,18 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     print("Print TEST:")
     bash.env_var("TEST")
 
-    bash.cmd("composer install")
-    bash.pwd();
     bash.env_var("COMPOSER_ALLOW_SUPERUSER", "1")
+    # Use --no-scripts to avoid npm ci (lock file often out of sync in oro repo)
+    bash.composer_install(no_scripts=True, working_dir="/var/www/html/oro")
+    # Run npm install to sync assets (npm ci fails when lock file mismatches)
+    if bash.exists("/var/www/html/oro/package.json"):
+        bash.npm_install(prefix="/var/www/html/oro")
+    # Find and run npm install in package subdirs (oro bundles with assets)
+    for pkg in bash.find("/var/www/html/oro", "package.json") or []:
+        pkg_dir = os.path.dirname(pkg)
+        if pkg_dir != "/var/www/html/oro":
+            bash.npm_install(prefix=pkg_dir)
+    bash.pwd()
 
     # Set the database URL in the .env-app file becouse ENV doesn't work ... 
     bash.cmd("sed -i '/^ORO_DB_URL=/d' /var/www/html/oro/.env-app")
@@ -184,7 +199,7 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.cmd("chmod +x /var/www/html/oro/bin/console")
     bash.cmd("ls -la /var/www/html/oro/")
     #bash.cmd("composer clear-cache")
-    bash.cmd("service postgresql start")
+    bash.service_start("postgresql")
 
     bash.echo("PreInstall Check OroCommerce...")
     bash.cmd("php bin/console oro:check-requirements")  
@@ -194,10 +209,10 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     bash.echo("Installing OroCommerce...")
  
     print("Installation completed start all services...")
-    bash.cmd("service nginx start")
-    bash.cmd("service php8.3-fpm start")
-    bash.cmd("service redis-server start") 
-    bash.cmd("service postgresql start")
+    bash.service_start("nginx")
+    bash.service_start("php8.3-fpm")
+    bash.service_start("redis-server") 
+    bash.service_start("postgresql")
     bash.cd("/var/www/html/oro/")
     # OFFICIAL DOCKER://github.com/oroinc/docker-demo/blob/master/compose.yaml#L121C342-L121C380
     bash.cmd(f"php bin/console oro:install --no-interaction --env=prod --user-name={admin_user} --user-email={admin_email} --user-firstname={admin_firstname} --user-lastname={admin_lastname} --user-password={admin_password} --timeout=2000")
@@ -227,18 +242,20 @@ def install_packages(packages):
     bash.install(['sudo'])
     bash.install(packages)
     bash.echo(f"Packages installed successfully: {', '.join(packages)}")
-    install_supervisord_for_orocommerce()
+    install_supervisord_for_orocommerce(php_version="8.3")
 
-def install_supervisord_for_orocommerce():
+def install_supervisord_for_orocommerce(php_version="8.3"):
     """Install and configure Supervisor."""
-    # sudo netstat -tuln
-    bash.supervisor.status()
-    bash.cmd("supervisorctl shutdown", user="root")
+    bash.cmd("chmod -R 755 /var/log/")
+    if not bash.command_exists("supervisord"):
+        bash.cmd("pip3 install supervisor --break-system-packages")
+    if bash.command_exists("supervisorctl"):
+        bash.run_ok("supervisorctl shutdown")
     bash.cmd("sleep 1")
     bash.cmd("service --status-all")
-    bash.cmd("chown www-data:www-data /var/log/php8.2-fpm.log")
-    bash.cmd("chmod -R 755 /var/log/")
-    bash.cmd("pip3 install supervisor")
+    php_log = f"/var/log/php{php_version}-fpm.log"
+    if bash.exists(php_log):
+        bash.cmd(f"chown www-data:www-data {php_log}")
     bash.cmd("rm -rf /etc/supervisord.conf")
     bash.cmd("echo_supervisord_conf > /etc/supervisord.conf")
     bash.rm("/etc/test.conf")
@@ -255,9 +272,9 @@ stdout_logfile=/var/log/ngin-supervisor_output.log
     """
     bash.write_to_file("/etc/supervisord.conf", nginx_conf, 'a')
 
-    php_fpm_conf = """
+    php_fpm_conf = f"""
 [program:php-fpm]
-command=/usr/sbin/php-fpm8.2 --nodaemonize 
+command=/usr/sbin/php-fpm{php_version} --nodaemonize 
 autostart=true
 autorestart=true
 stderr_logfile=/var/log/php-fpm-supervisor_error.log
@@ -276,7 +293,9 @@ stdout_logfile=/var/log/redis-supervisor_output.log
     """
     bash.write_to_file("/etc/supervisord.conf", redis_conf, 'a')
 
-    elasticsearch_conf = """
+    # Only add elasticsearch if user exists (not installed in basic Oro flow)
+    if bash.user_exists("elasticsearch"):
+        elasticsearch_conf = """
 [program:elasticsearch]
 command=/usr/share/elasticsearch/bin/elasticsearch
 user=elasticsearch
@@ -285,7 +304,7 @@ autorestart=true
 stderr_logfile=/var/log/elasticsearch-supervisor_error.log
 stdout_logfile=/var/log/elasticsearch-supervisor_output.log
     """
-    bash.write_to_file("/etc/supervisord.conf", elasticsearch_conf, 'a')
+        bash.write_to_file("/etc/supervisord.conf", elasticsearch_conf, 'a')
 
     postgres_conf = """
 [program:postgres]
@@ -300,7 +319,8 @@ stdout_logfile=/var/log/postgres-supervisor_output.log
     # postgres                         FATAL     Exited too quickly (process log may have details)
     bash.write_to_file("/etc/supervisord.conf", postgres_conf, 'a')
 
-    if True:
+    # Only add mysql if user exists (not installed in basic Oro flow)
+    if bash.user_exists("mysql"):
         mysql_conf = """
 [program:mysql]
 command=/usr/sbin/mysqld
@@ -310,8 +330,6 @@ autorestart=false
 stderr_logfile=/var/log/mysql-supervisor_error.log
 stdout_logfile=/var/log/mysql-supervisor_output.log
     """
-        ## You will have error when status but it is ok. I don't find how to run postgres in foreground.
-        # postgres                         FATAL     Exited too quickly (process log may have details)
         bash.write_to_file("/etc/supervisord.conf", mysql_conf, 'a')
 
     bash.cmd("supervisord -c /etc/supervisord.conf")
@@ -321,7 +339,7 @@ def install_redis():
     """Install and configure Redis."""
     bash.echo("Installing Redis...")
     bash.install(["redis-server"])
-    bash.cmd("service redis-server start")
+    bash.service_start("redis-server")
     # Test Redis connection
     bash.cmd("redis-cli ping")
     
@@ -501,17 +519,17 @@ def interactive_menu(stdscr):
         stdscr.clear()
         stdscr.bkgd(' ', curses.color_pair(2))  # Reapply background on each refresh
         
-        # Draw ASCII art
+        # Draw ASCII art (raw strings to preserve backslashes)
         ascii_art = [
-"  ___   ____    ___    ____                                                    ",
-" / _ \ |  _ \  / _ \  / ___| ___   _ __ ___   _ __ ___    ___  _ __  ___  ___  ",
-"| | | || |_) || | | || |    / _ \ | '_ ` _ \ | '_ ` _ \  / _ \| '__|/ __|/ _ \\",
-"| |_| ||  _ < | |_| || |___| (_) || | | | | || | | | | ||  __/| |  | (__|  __/",
-" \___/ |_| \_\_\___/  \____|\___/_|_| |_| |_||_| |_| |_| \___||_|   \___|\___/",
-" / __| / _ \| '__|\ \ / // _ \| '__|                                            ",
-" \__ \|  __/| |    \ V /|  __/| |                                               ",
-" |___/ \___||_|     \_/  \___||_|   v6.0                                         "                                                                               
-]
+            r"  ___   ____    ___    ____                                                    ",
+            r" / _ \ |  _ \  / _ \  / ___| ___   _ __ ___   _ __ ___    ___  _ __  ___  ___  ",
+            r"| | | || |_) || | | || |    / _ \ | '_ ` _ \ | '_ ` _ \  / _ \| '__|/ __|/ _ \\",
+            r"| |_| ||  _ < | |_| || |___| (_) || | | | | || | | | | ||  __/| |  | (__|  __/",
+            r" \___/ |_| \_\_\___/  \____|\___/_|_| |_| |_||_| |_| |_| \___||_|   \___|\___/",
+            r" / __| / _ \| '__|\ \ / // _ \| '__|                                            ",
+            r" \__ \|  __/| |    \ V /|  __/| |                                               ",
+            r" |___/ \___||_|     \_/  \___||_|   v6.0                                         ",
+        ]
 
         # Calculate ASCII art position
         art_y = max(0, menu_y - len(ascii_art) - 3)  # Position above the title
@@ -702,7 +720,8 @@ def main():
 
     # Initialize Basher with verbosity level from command-line arguments
     bash = Basher()
-    
+    bash.set_raise_exception(True)  # Stop on first command failure
+
     # Set verbosity level based on command-line arguments
     # -v = 1, -vv = 2, -vvv = 3
     verbosity_level = min(args.verbose, 3)  # Cap at level 3

@@ -1,4 +1,5 @@
-from .core import BashCommand  # Assuming Core is similar to BashCommand
+from .core import BashCommand
+from .shell_utils import quote
 
 class SupervisorD(BashCommand):
     """
@@ -7,6 +8,7 @@ class SupervisorD(BashCommand):
 
     def __init__(self, working_dir=None):
         """Initialize the SupervisorOps object."""
+        super().__init__(working_dir)
 
 
     def init(self, config_file="/etc/supervisord.conf"):
@@ -14,7 +16,7 @@ class SupervisorD(BashCommand):
 
         :param config_file: The path to the Supervisor configuration file.
         """
-        return self.cmd(f"sudo supervisord -c {config_file}")
+        return self.cmd(f"sudo supervisord -c {quote(config_file)}")
 
     def start_all(self):
         """Start all programs managed by Supervisor."""
@@ -34,15 +36,15 @@ class SupervisorD(BashCommand):
 
     def start_program(self, program_name):
         """Start a specific program managed by Supervisor."""
-        return self.cmd(f"sudo supervisorctl start {program_name}")
+        return self.cmd(f"sudo supervisorctl start {quote(program_name)}")
 
     def stop_program(self, program_name):
         """Stop a specific program managed by Supervisor."""
-        return self.cmd(f"sudo supervisorctl stop {program_name}")
+        return self.cmd(f"sudo supervisorctl stop {quote(program_name)}")
 
     def restart_program(self, program_name):
         """Restart a specific program managed by Supervisor."""
-        return self.cmd(f"sudo supervisorctl restart {program_name}")
+        return self.cmd(f"sudo supervisorctl restart {quote(program_name)}")
 
     def reread(self):
         """Reread Supervisor configuration files."""

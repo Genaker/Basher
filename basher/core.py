@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+from .shell_utils import quote
 
 class BashCommand:
     """
@@ -45,6 +46,7 @@ class BashCommand:
                 self.working_dir = working_dir
             else:
                 raise ValueError(f"Working directory '{working_dir}' does not exist")
+        self.emulate = False  # When True, cmd() skips execution (dry-run)
         
     
     def cmd(self, command, show_output=None, capture_output=False, check=True, cwd=None, user=None, detect_input_prompt=True, arguments=None, emulate=False, bashrc=False, executable='/bin/bash', assert_output=None, assert_returncode=None, assert_regex=False, assert_error_message=None, background=False):
@@ -86,6 +88,8 @@ class BashCommand:
             user = self.current_user
         if user == "sudo":
             user = "root"
+
+        emulate = emulate or getattr(self, 'emulate', False)
 
         env_vars = os.environ.copy()
 
@@ -298,7 +302,18 @@ class BashCommand:
                 return_code = result.returncode
                 stdout_output = result.stdout
                 stderr_output = result.stderr
-            
+                # Ensure strings (handles None, MagicMock in tests - avoid printing Mock repr)
+                def _safe_out(x):
+                    if x is None:
+                        return ""
+                    if isinstance(x, str):
+                        return x
+                    if "Mock" in type(x).__name__:
+                        return ""
+                    return str(x)
+                stdout_output = _safe_out(stdout_output)
+                stderr_output = _safe_out(stderr_output)
+
             # Print output if requested
             if show_output:
                 print(f"{self.BLUE}    OUTPUT#{self.RESET} {(stdout_output + stderr_output).rstrip()}")
@@ -367,6 +382,8 @@ class BashCommand:
         
         except Exception as e:
             print(f"{self.RED}Error executing command: {e}{self.RESET}")
+            if self.raise_exception:
+                raise
             if capture_output:
                 return "Exception: " + str(e)
             return 1
@@ -376,10 +393,23 @@ class BashCommand:
             if original_dir:
                 os.chdir(original_dir)
     
+    def run_ok(self, command, **kwargs):
+        """
+        Run a command and return True if successful, False otherwise.
+        Never raises—useful for optional checks (e.g. supervisorctl shutdown).
+
+        :param command: Command to run.
+        :param **kwargs: Passed to cmd() (e.g. show_output=False).
+        :return: True if returncode 0, False otherwise.
+        """
+        kwargs.setdefault("check", False)
+        result = self.cmd(command, **kwargs)
+        return result == 0
+
     def error(self, message):
         """
         Display an error message in red.
-        
+
         :param message: The error message to display.
         """
         self.cmd(f"echo '{self.RED}{message}{self.RESET}'", capture_output=False)
@@ -418,15 +448,13 @@ class BashCommand:
         :return: The command output if successful, otherwise None.
         """
         # Check if the directory exists
-        result = subprocess.run(f"[ -d '{directory}' ]", shell=True)
+        result = subprocess.run(f"[ -d {quote(directory)} ]", shell=True)
         if result.returncode != 0:
             self.error(f"Directory '{directory}' does not exist")
             return None
         
         # Execute the command in the specified directory
-        return self.cmd(f"cd '{directory}' && {command}", show_output=show_output)
-    
-        os.chdir(original_dir)
+        return self.cmd(f"cd {quote(directory)} && {command}", show_output=show_output)
 
     def user(self, user=None):
         """

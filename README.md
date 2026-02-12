@@ -1,6 +1,37 @@
 # Basher
 
-Basher is a Python library that provides a convenient wrapper around common bash commands, making it easier to perform file system operations, package management, and archive handling in Python scripts. Basher also can be used to build Doker images and used in the Dokerfile.
+Basher is a Python library that provides a convenient wrapper around common bash commands, making it easier to perform file system operations, package management, and archive handling in Python scripts. Basher can also be used to build Docker images and used in Dockerfiles.
+
+## Quick start
+
+```bash
+# Install from PyPI
+pip3 install basher2
+
+# Or install from repo (for development)
+cd Basher && pip3 install -e .
+
+# Run tests
+python3 -m pytest tests/ -v
+```
+
+## Project structure
+
+```
+Basher/
+├── basher/           # Library source
+├── install-oro.py    # OroCommerce install script
+├── install-magento.py
+├── tests/            # pytest tests
+├── tests.py          # legacy tests
+├── docker-compose.yml
+├── Dockerfile
+└── docs/
+```
+
+## Philosophy
+
+**When Python is used instead of shell commands, the output must match the Linux command analog—so that copying the output allows reproduction without Python.** See [docs/PHILOSOPHY.md](docs/PHILOSOPHY.md) for the full design principles.
 
 # Why Python for Bash
 
@@ -330,34 +361,91 @@ Most methods return `True` if successful and `False` if they fail, making it eas
 if not bash.mkdir("/path/to/directory"):
     print("Failed to create directory")
 ```
-## Build for PIP
+## Build for PyPI
 
-Change version in `setup.py` and run commands:
+Change version in `setup.py` and run:
+
 ```bash
-sudo apt install  -y
 rm -rf dist/*
 python3 setup.py sdist bdist_wheel
 python3 -m twine upload dist/*
 ```
-add key here : ~/.pypirc
+
+Add credentials to `~/.pypirc`:
+
 ```
-# ~/.pypirc
 [pypi]
 username = __token__
 password = pypi-AgEIcH***
 ```
-or  Using Environment Variables
+
+Or use environment variables:
+
 ```bash
 export PYPI_USERNAME=__token__
 export PYPI_PASSWORD=pypi-AgEIcH***
 ```
 
-## Initial install using 
+## Installation
 
 ```bash
 sudo apt install python3 python3-pip
 pip3 install basher2
 ```
+
+## Testing
+
+```bash
+# Pytest (147 tests)
+python3 -m pytest tests/ -v
+
+# Legacy tests
+python3 tests.py
+```
+
+## Docker (OroCommerce install script)
+
+**Prerequisites:** Docker and Docker Compose.
+
+The `install-oro.py` script installs an OroCommerce stack: PHP 8.3, Composer, Node.js, Nginx, Supervisor, MySQL/PostgreSQL, Redis, Elasticsearch.
+
+### Build and run
+
+```bash
+# Build image
+docker compose build
+# Or with verbose output:
+docker compose build --progress=plain
+
+# Run install
+docker compose run --rm oro-install                    # interactive menu
+docker compose run --rm oro-install --no-interaction   # full install (non-interactive)
+```
+
+### Script options
+
+| Option | Description |
+|--------|-------------|
+| `--no-interaction` | Full install without prompts |
+| `-i N`, `--inputs N` | Run specific step by index |
+| `-v`, `--verbose` | Increase verbosity |
+| `-n`, `--no-inp` | No input mode |
+
+### Manual testing in Docker
+
+Bash into the container and run the script manually:
+
+```bash
+# 1. Start a shell inside the container (overrides default entrypoint)
+docker compose run --rm --entrypoint bash oro-install
+
+# 2. Inside the container, run the install script:
+python3 install-oro.py                    # interactive menu
+python3 install-oro.py --no-interaction   # full install
+python3 install-oro.py -i 8               # run step 8 only
+```
+
+**Note:** The project is mounted at `/app`, so code changes are reflected immediately without rebuilding.
 
 ## License
 

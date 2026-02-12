@@ -7,6 +7,7 @@ setup(
     name="basher2",
     version="0.1.4",
     install_requires=[],
+    extras_require={"dev": ["pytest>=7.0"]},
     author="Yehor Shytikov",
     author_email="egorshitikov@gmail.com",
     description="Python utilities that wrap bash commands",

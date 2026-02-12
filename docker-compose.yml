@@ -1,0 +1,10 @@
+services:
+  oro-install:
+    build: .
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    # docker compose run oro-install              # interactive menu
+    # docker compose run oro-install -i 8          # full install
+    # docker compose run oro-install --no-interaction

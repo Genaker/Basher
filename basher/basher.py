@@ -86,17 +86,19 @@ class Basher(BashCommand):
         return self.system.install(packages, check_installed)
     
     def purge(self, software):
-        """Remove pakage"""
-        return self.system.purge(software);
+        """Remove package."""
+        return self.system.purge(software)
+
+    def set_emulate(self, on=True):
+        """Enable/disable dry-run mode (emulate=True skips actual command execution)."""
+        self.emulate = bool(on)
     
     def cd(self, directory_path):
         """Change the current working directory."""
         result = self.system.cd(directory_path)
         if result:
-            # Update working_dir for all components
             self.working_dir = directory_path
             self.file.working_dir = directory_path
-            self.archive_ops.working_dir = directory_path
         return result
     
     def pwd(self):
@@ -110,7 +112,35 @@ class Basher(BashCommand):
     def rm(self, path, recursive=True):
         """Remove a file or directory."""
         return self.system.rm(path, recursive)
-    
+
+    def command_exists(self, command):
+        """Check if a command exists in PATH."""
+        return self.system.command_exists(command)
+
+    def user_exists(self, username):
+        """Check if a system user exists."""
+        return self.system.user_exists(username)
+
+    def add_apt_repository(self, ppa):
+        """Add an apt PPA repository."""
+        return self.system.add_apt_repository(ppa)
+
+    def composer_install(self, no_scripts=False, working_dir=None):
+        """Run composer install."""
+        return self.system.composer_install(no_scripts, working_dir)
+
+    def npm_install(self, prefix=None):
+        """Run npm install."""
+        return self.system.npm_install(prefix)
+
+    def service_start(self, service_name):
+        """Start a system service."""
+        return self.system.service_start(service_name)
+
+    def run_ok(self, command, **kwargs):
+        """Run command, return True if success, False otherwise. Never raises."""
+        return super().run_ok(command, **kwargs)
+
     # Archive operations
     def archive(self, source, archive_path, format='tar.gz'):
         """Create an archive."""

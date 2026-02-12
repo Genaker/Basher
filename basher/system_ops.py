@@ -3,6 +3,7 @@
 import os
 import subprocess
 from .core import BashCommand
+from .shell_utils import quote
 
 class SystemOps(BashCommand):
     """
@@ -66,12 +67,12 @@ class SystemOps(BashCommand):
 
         if check_installed:
             for package in packages:
-                if self.cmd(f"apt list --installed | grep {package}", show_output=False, check=False) == 0:
+                if self.cmd(f"apt list --installed | grep -F {quote(package)}", show_output=False, check=False) == 0:
                     self.info(f"{package} is already installed")
                     return True
         
-        # Convert list to space-separated string
-        packages_str = " ".join(packages)
+        # Quote each package to prevent injection
+        packages_str = " ".join(quote(p) for p in packages)
         
         package_manager = self.detect_package_manager()
         
@@ -102,8 +103,7 @@ class SystemOps(BashCommand):
         :param software: Name of the software package to remove.
         """
         try:
-            # Run the apt-get purge command
-            return self.cmd(f"sudo apt-get purge -y {software}*", check=True)
+            return self.cmd(f"sudo apt-get purge -y {quote(software)}*", check=True)
         except Exception as e:
             self.error(f"Failed to purge {software}. Error: {e}")
     
@@ -139,7 +139,7 @@ class SystemOps(BashCommand):
             return False
         
         try:
-            result = subprocess.run(f"mkdir -p '{directory_path}'", shell=True)
+            result = subprocess.run(f"mkdir -p {quote(directory_path)}", shell=True)
             return result.returncode == 0
         except Exception as e:
             self.error(f"Failed to create directory: {e}")
@@ -159,15 +159,14 @@ class SystemOps(BashCommand):
         
         try:
             if os.path.isfile(path) or os.path.islink(path):
-                result = subprocess.run(f"rm {path}", shell=True)
+                result = subprocess.run(f"rm {quote(path)}", shell=True)
                 return result.returncode == 0
             elif os.path.isdir(path):
                 if recursive:
-                    result = subprocess.run(f"rm -rf {path}", shell=True)
+                    result = subprocess.run(f"rm -rf {quote(path)}", shell=True)
                     return result.returncode == 0
                 else:
-                    # Try to remove an empty directory
-                    result = subprocess.run(f"rmdir {path} 2>/dev/null", shell=True)
+                    result = subprocess.run(f"rmdir {quote(path)} 2>/dev/null", shell=True)
                     return result.returncode == 0
             return False
         except Exception as e:
@@ -220,7 +219,7 @@ class SystemOps(BashCommand):
         if self.file_ops:
             return self.file_ops.exists(path)
         else:
-            result = subprocess.run(f"[ -e '{path}' ]", shell=True)
+            result = subprocess.run(f"[ -e {quote(path)} ]", shell=True)
             return result.returncode == 0
 
     def folder_exists(self, path):
@@ -233,7 +232,7 @@ class SystemOps(BashCommand):
         if self.file_ops:
             return self.file_ops.folder_exists(path)
         else:
-            result = subprocess.run(f"[ -d '{path}' ]", shell=True)
+            result = subprocess.run(f"[ -d {quote(path)} ]", shell=True)
             return result.returncode == 0
         
     def pwd(self):
@@ -241,6 +240,63 @@ class SystemOps(BashCommand):
         Get the current working directory.
         """
         return self.cmd("pwd", show_output=True)
+
+    def command_exists(self, command):
+        """
+        Check if a command exists in PATH.
+
+        :param command: Command name to check (e.g. 'php', 'supervisord').
+        :return: True if command exists, False otherwise.
+        """
+        return self.cmd(f"which {quote(command)}", show_output=False, check=False) == 0
+
+    def user_exists(self, username):
+        """
+        Check if a system user exists.
+
+        :param username: Username to check (e.g. 'elasticsearch', 'mysql').
+        :return: True if user exists, False otherwise.
+        """
+        return self.cmd(f"getent passwd {quote(username)}", show_output=False, check=False) == 0
+
+    def add_apt_repository(self, ppa):
+        """
+        Add an apt PPA repository. Requires software-properties-common.
+
+        :param ppa: PPA spec (e.g. 'ppa:ondrej/php').
+        :return: True if successful, False otherwise.
+        """
+        return self.cmd(f"add-apt-repository -y {quote(ppa)}") == 0
+
+    def composer_install(self, no_scripts=False, working_dir=None):
+        """
+        Run composer install.
+
+        :param no_scripts: If True, skip Composer scripts (e.g. post-install).
+        :param working_dir: Directory to run in (default: self.working_dir).
+        :return: True if successful, False otherwise.
+        """
+        flags = " --no-scripts" if no_scripts else ""
+        return self.cmd(f"composer install{flags}", cwd=working_dir or self.working_dir) == 0
+
+    def npm_install(self, prefix=None):
+        """
+        Run npm install.
+
+        :param prefix: Directory to install in (npm --prefix).
+        :return: True if successful, False otherwise.
+        """
+        cmd = f"npm install --prefix {quote(prefix)}" if prefix else "npm install"
+        return self.cmd(cmd) == 0
+
+    def service_start(self, service_name):
+        """
+        Start a system service.
+
+        :param service_name: Service name (e.g. 'nginx', 'php8.3-fpm').
+        :return: True if successful, False otherwise.
+        """
+        return self.cmd(f"service {quote(service_name)} start") == 0
     
     def env_var(self, var_name, value=None):
         """
@@ -254,7 +310,7 @@ class SystemOps(BashCommand):
             # Set the environment variable
             # print(f"{self.YELLOW}CMD#{self.RESET} export {var_name}='{value}'")  # For Unix-like systems
 
-            self.cmd(f"export {var_name}='{value}'", emulate=True);
+            self.cmd(f"export {var_name}={quote(str(value))}", emulate=True);
             self.env_vars[var_name] = str(value).strip()
             # Set environment variable in Python otherwise it will not work
             os.environ[var_name] = str(value).strip()
