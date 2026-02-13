@@ -217,7 +217,11 @@ def clone_and_setup_orocommerce(repo_url, branch, install_dir, admin_user, admin
     # OFFICIAL DOCKER://github.com/oroinc/docker-demo/blob/master/compose.yaml#L121C342-L121C380
     bash.cmd(f"php bin/console oro:install --no-interaction --env=prod --user-name={admin_user} --user-email={admin_email} --user-firstname={admin_firstname} --user-lastname={admin_lastname} --user-password={admin_password} --timeout=2000")
     bash.cmd("php bin/console oro:migration:data:load --fixtures-type=demo --env=prod")
-    bash.cmd("php bin/console oro:assets:install --symlink")
+    # Assets: symlinks then build. NODE_OPTIONS increases Node heap for Docker; --npm-install ensures vendor/oro/platform/build has deps
+    bash.cmd("php bin/console assets:install --symlink")
+    bash.env_var("NODE_OPTIONS", "--max-old-space-size=4096")
+    if not bash.run_ok("php bin/console oro:assets:build --env=prod --npm-install", show_output=False):
+        bash.echo("Assets build failed, continuing with symlinks only", color="yellow")
     bash.cmd("chmod -R 777 /var/www/html/oro/var")
     bash.cmd("php bin/console cache:clear --env=prod")
     bash.pwd()
@@ -429,6 +433,23 @@ def install_opensearch():
 
 
 
+def check_services():
+    """Verify all services are running after installation."""
+    bash.echo("Checking services status...")
+    bash.cmd("supervisorctl status", show_output=True)
+    checks = [
+        ("Redis", "redis-cli ping"),
+        ("Nginx", "curl -s -o /dev/null -w '%{http_code}' http://localhost/"),
+        ("PostgreSQL", "pg_isready -U postgres"),
+    ]
+    for name, cmd in checks:
+        if bash.run_ok(cmd, show_output=False):
+            bash.echo(f"  {name}: OK", color="green")
+        else:
+            bash.echo(f"  {name}: FAILED", color="red")
+    bash.echo("Services check completed.")
+
+
 def run_full_installation():
     """Run the full installation process."""
     bash.echo("Starting full installation...")
@@ -455,6 +476,7 @@ def run_full_installation():
     )
     
     bash.echo("Full installation completed successfully!")
+    check_services()
 
 def initialize_curses():
     """Initialize curses."""

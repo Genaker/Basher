@@ -23,14 +23,22 @@ def install_php(php_ini_path, php_version="8.3"):
 
     bash.echo("install PHP...")
 
-    bash.install("software-properties-common ");
+    bash.install("software-properties-common")
     bash.cmd("add-apt-repository -y ppa:ondrej/php");
     bash.cmd("apt update");
     
     bash.env_var("php_version", php_version)
     bash.rm(f"/etc/php/{php_version}/cli/php.ini");
     bash.rm(f"/etc/php/{php_version}/fpm/php.ini");
-    bash.install(f"php{php_version} php{php_version}-fpm php{php_version}-cli php{php_version}-pdo php{php_version}-mysqlnd php{php_version}-redis php{php_version}-xml php{php_version}-soap php{php_version}-gd php{php_version}-zip php{php_version}-intl php{php_version}-mbstring php{php_version}-opcache php{php_version}-curl php{php_version}-bcmath php{php_version}-ldap php{php_version}-pgsql php{php_version}-dev php{php_version}-mongodb");
+    bash.install([
+        f"php{php_version}", f"php{php_version}-fpm", f"php{php_version}-cli",
+        f"php{php_version}-pdo", f"php{php_version}-mysqlnd", f"php{php_version}-redis",
+        f"php{php_version}-xml", f"php{php_version}-soap", f"php{php_version}-gd",
+        f"php{php_version}-zip", f"php{php_version}-intl", f"php{php_version}-mbstring",
+        f"php{php_version}-opcache", f"php{php_version}-curl", f"php{php_version}-bcmath",
+        f"php{php_version}-ldap", f"php{php_version}-pgsql", f"php{php_version}-dev",
+        f"php{php_version}-mongodb"
+    ])
     php_settings = """
     memory_limit = 2048M
     max_input_time = 600
@@ -80,8 +88,6 @@ def install_php(php_ini_path, php_version="8.3"):
     """
     bash.write_to_file(php_ini_fpm_path, settings, 'a')
     bash.cmd("php -v", show_output=True)
-    print("Test Error output with the wrong command")
-    bash.cmd("php9 -v", show_output=True)
     bash.echo(f"PHP configured successfully in {php_ini_fpm_path}")
 
 
@@ -94,8 +100,7 @@ def install_nginx(nginx_conf_path):
     bash.echo("Nginx installed successfully")
 
     bash.echo("Configure Nginx...")
-    """Configure Nginx."""
-    nginx_conf = """
+    nginx_conf = r"""
 server {
     server_name localhost www.localhost 127.0.0.1;
     root /var/www/html/oro/public;
@@ -104,15 +109,15 @@ server {
         try_files $uri /index.php$is_args$args;
     }
 
-    location ~ ^/(index|index_dev|config|install)\\.php(/|$) {
+    location ~ ^/(index|index_dev|config|install)\.php(/|$) {
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;
-        fastcgi_split_path_info ^(.+\\.php)(/.*)$;
+        fastcgi_split_path_info ^(.+\.php)(/.*)$;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         fastcgi_param HTTPS off;
     }
 
-    location ~* ^[^(\.php)]+\\.(jpg|jpeg|gif|png|ico|css|pdf|ppt|txt|bmp|rtf|js)$ {
+    location ~* ^[^(\.php)]+\.(jpg|jpeg|gif|png|ico|css|pdf|ppt|txt|bmp|rtf|js)$ {
         access_log off;
         expires 1h;
         add_header Cache-Control public;
@@ -174,16 +179,17 @@ def install_redis():
 
 def install_mysql():
     """Install and configure MySQL."""
-    #Setup MySQL
-    bash.install(["mysql-server"])
+    preseeds = (
+        "echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections && "
+        "echo 'mysql-server mysql-server/root_password password root' | sudo debconf-set-selections && "
+        "echo 'mysql-server mysql-server/root_password_again password root' | sudo debconf-set-selections"
+    )
+    bash.cmd(preseeds)
+    bash.cmd("export DEBIAN_FRONTEND=noninteractive && sudo -E apt-get update -qq && sudo -E apt-get install -y mysql-server")
     bash.cmd("service mysql start")
-    # mysql -u magento -pmagento -hlocalhost
-    bash.cmd("mysql -e \"CREATE DATABASE magento; CREATE USER 'magento'@'localhost' IDENTIFIED BY 'magento'; GRANT ALL ON magento.* TO 'magento'@'localhost'; FLUSH PRIVILEGES;\"")
-    bash.cmd("mysql -e \"GRANT ALL ON magento.* TO 'magento'@'localhost'; FLUSH PRIVILEGES;\"")
-    bash.cmd("mysql -e \"GRANT ALL PRIVILEGES ON *.* TO 'magento'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"") 
-    bash.cmd("mysql -e \"show databases\"")
-    bash.cmd("mysql -e \"SET GLOBAL log_bin_trust_function_creators = 1;\"")
-    bash.cmd("mysql -e \"select version()\"")
+    # Use root (preseeded password) to create magento user
+    bash.cmd("mysql -u root -proot -e \"CREATE DATABASE IF NOT EXISTS magento; DROP USER IF EXISTS 'magento'@'localhost'; CREATE USER 'magento'@'localhost' IDENTIFIED BY 'magento'; GRANT ALL ON magento.* TO 'magento'@'localhost'; FLUSH PRIVILEGES;\"")
+    bash.cmd("mysql -u root -proot -e \"GRANT ALL PRIVILEGES ON *.* TO 'magento'@'localhost' WITH GRANT OPTION; SET GLOBAL log_bin_trust_function_creators = 1; FLUSH PRIVILEGES;\"")
 
 def install_magento():
     """Install and configure Magento."""
@@ -203,29 +209,29 @@ def install_magento():
     db_name = "magento"
     db_user = "magento"
     db_password = "magento"
-    bash.cmd(f"bin/magento setup:install --base-url=http://localhost --db-host={db_host} --db-name={db_name} --db-user={db_user} --db-password={db_password} --admin-firstname=Magento --admin-lastname=Admin --admin-email=admin@yourdomain.com --admin-user=admin --admin-password=admin123 --language=en_US --currency=USD --timezone=America/Chicago --use-rewrites=1 \
-             --search-engine=elasticsearch7 --elasticsearch-enable-auth=0 --elasticsearch-index-prefix=magento_site1 --elasticsearch-host=localhost --elasticsearch-port=9200")
+    # Magento 2.4+ requires Elasticsearch or OpenSearch
+    search_opts = "--search-engine=elasticsearch7 --elasticsearch-enable-auth=0 --elasticsearch-index-prefix=magento_site1 --elasticsearch-host=127.0.0.1 --elasticsearch-port=9200"
+    bash.cmd(f"bin/magento setup:install --base-url=http://localhost --db-host={db_host} --db-name={db_name} --db-user={db_user} --db-password={db_password} --admin-firstname=Magento --admin-lastname=Admin --admin-email=admin@yourdomain.com --admin-user=admin --admin-password=admin123 --language=en_US --currency=USD --timezone=America/Chicago --use-rewrites=1 {search_opts}")
     bash.cmd("yes | bin/magento setup:config:set --cache-backend=redis --cache-backend-redis-server=127.0.0.1 --cache-backend-redis-db=0")
     bash.cmd("yes | bin/magento setup:config:set --page-cache=redis --page-cache-redis-server=127.0.0.1 --page-cache-redis-db=1")
     bash.cmd("yes | bin/magento setup:config:set --session-save=redis --session-save-redis-host=127.0.0.1 --session-save-redis-log-level=4 --session-save-redis-db=2")
     bash.cmd("bin/magento module:disable Magento_AdminAdobeImsTwoFactorAuth")
     bash.cmd("bin/magento module:disable Magento_TwoFactorAuth")
 
-    magento2conf="""upstream fastcgi_backend {
+    magento2conf = r"""upstream fastcgi_backend {
             server  unix:/run/php/php8.2-fpm.sock;
         }
 
         server {
             listen 80;
             server_name localhost;
-            set \$MAGE_ROOT /var/www/html/magento;
+            set $MAGE_ROOT /var/www/html/magento;
             include /var/www/html/magento/nginx.conf.sample;
         }"""
-    
-    bash.cmd("bash -c \"echo '" + magento2conf + "' > /etc/nginx/conf.d/magento.conf\"")
+    bash.write_to_file("/etc/nginx/conf.d/magento.conf", magento2conf, 'w')
     # wget https://raw.githubusercontent.com/magento/magento2/refs/heads/2.4-develop/nginx.conf.sample
     bash.cmd("nginx -t")
-    bash.cmd("service nginx restart")
+    bash.cmd("service nginx restart || service nginx start")
 
     bash.cmd("chmod -R 777 /var/www/html/magento/*")
 
@@ -252,15 +258,15 @@ def install_magento():
 
 def run_elasticsearch():
     """Run Elasticsearch as a background process."""
-    # Command to run Elasticsearch as a background process
-    command = "sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/elasticsearch/elasticsearch.log 2>&1"
-    # Check if Elasticsearch is already running
-    if bash.cmd("pgrep -f elasticsearch") != 0:
+    if bash.run_ok("pgrep -f elasticsearch", show_output=False):
         bash.echo("Elasticsearch is already running")
-    else:
-        process = run_command_in_background(command)
-
-    print(f"Elasticsearch started with PID: {process.pid}")
+        return
+    if not bash.user_exists("elasticsearch"):
+        bash.echo("Elasticsearch user not found, skipping")
+        return
+    command = "sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/elasticsearch/elasticsearch.log 2>&1"
+    process = run_command_in_background(command)
+    bash.echo(f"Elasticsearch started with PID: {process.pid}")
 
 def run_command_in_background(command):
     """Run a command as a background process."""
@@ -291,9 +297,11 @@ def status_all_services():
 
 def install_elsticsearch():
     """Install and configure Elasticsearch."""
-    bash.cmd("pkill -u elasticsearch")
+    if bash.user_exists("elasticsearch"):
+        bash.run_ok("pkill -u elasticsearch", show_output=False)
     bash.rm("/var/lib/elasticsearch")
     bash.rm("/etc/elasticsearch/")
+    bash.install("wget")
     bash.cmd("wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo apt-key add -")
     if not bash.string_exists_in_file('/etc/apt/sources.list.d/elastic-7.x.list', "deb https://artifacts.elastic.co/packages/7.x/apt stable main"):
         bash.cmd("echo \"deb https://artifacts.elastic.co/packages/7.x/apt stable main\" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list")
@@ -322,19 +330,18 @@ discovery.type: single-node
 
     if not bash.string_exists_in_file("/etc/elasticsearch/elasticsearch.yml", "xpack.security.enabled: false"):
         bash.write_to_file("/etc/elasticsearch/elasticsearch.yml", elastic_config, 'a')
-    if not bash.string_exists_in_file("/etc/elasticsearch/jvm.options", "-Xms2g"):
-        bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xms2g", 'a')
-        bash.write_to_file("/etc/elasticsearch/jvm.options", "-Xmx2g", 'a')
+    # Reduce heap for Docker (default 2g can OOM). Use jvm.options.d to override.
+    bash.cmd("mkdir -p /etc/elasticsearch/jvm.options.d")
+    bash.write_to_file("/etc/elasticsearch/jvm.options.d/heap.options", "-Xms1g\n-Xmx1g\n", 'w')
     # sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /dev/null 2>&1 &
     run_elasticsearch()
     bash.cmd("sleep 20")
-    test_elasticsearch = bash.cmd("curl -X GET \"localhost:9200\"")
-    if test_elasticsearch != 0:
-        bash.echo("Elasticsearch installation failed")
-        bash.tail("/var/log/elasticsearch/elasticsearch.log")
+    if not bash.run_ok("curl -s -X GET localhost:9200", show_output=False):
+        bash.echo("Elasticsearch installation failed", color="red")
+        if bash.exists("/var/log/elasticsearch/elasticsearch.log"):
+            bash.tail("/var/log/elasticsearch/elasticsearch.log")
         exit(1)
-    elif test_elasticsearch == 0:
-        bash.echo("Elasticsearch installation successful")
+    bash.echo("Elasticsearch installation successful", color="green")
     # bash.cmd("sudo pkill -u elasticsearch -f elasticsearch")
     # sudo /usr/share/elasticsearch/bin/elasticsearch-plugin install analysis-phonetic
     # sudo -u elasticsearch /usr/share/elasticsearch/bin/elasticsearch > /var/log/elasticsearch/elasticsearch.log 2>&1 &
@@ -349,21 +356,37 @@ def install_opensearch():
     bash.cmd("echo \"deb [signed-by=/usr/share/keyrings/opensearch-keyring] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main\" | sudo tee /etc/apt/sources.list.d/opensearch-2.x.list")
     bash.cmd("apt update")
     bash.cmd("apt list -a opensearch")
-    bash.echo("Install OpenSearch Version $OPENSEARCH_VERSION")
+    bash.echo("Install OpenSearch Version 2.11.0")
     print(f"{bash.MAGENTA}Install OpenSearch Version takes time please wait...{bash.RESET}")
-    bash.install("opensearch=$OPENSEARCH_VERSION")
+    bash.install("opensearch=2.11.0", check_installed=False)
     bash.rm("/var/lib/dpkg/info/opensearch.postinst")
-    # apt purge opensearch -y 
     bash.write_to_file("/etc/opensearch/opensearch.yml", "plugins.security.disabled: true", 'a')
     bash.write_to_file("/etc/opensearch/jvm.options", "-Xms1g", 'a')
     bash.write_to_file("/etc/opensearch/jvm.options", "-Xmx1g", 'a')
-    bash.remove("rm /var/lib/dpkg/info/opensearch.postinst")
-    bash.cmd("/usr/share/opensearch/bin/opensearch > /dev/null 2>&1 &", user="opensearch")
-    bash.cmd("sleep 20")
+    run_command_in_background("sudo -u opensearch /usr/share/opensearch/bin/opensearch")
+    bash.cmd("sleep 30")
+    if not bash.run_ok("curl -s -X GET localhost:9200", show_output=False):
+        bash.echo("OpenSearch failed to start", color="red")
+        exit(1)
+    bash.echo("OpenSearch started successfully", color="green")
 
-    # logs : cat  /etc/opensearch/opensearch.yml
-    bash.cmd("curl -X GET localhost:9200")
 
+
+def check_services():
+    """Verify all services are running after installation."""
+    bash.echo("Checking services status...")
+    bash.cmd("service nginx status", show_output=True)
+    checks = [
+        ("Redis", "redis-cli ping"),
+        ("Nginx", "curl -s -o /dev/null -w '%{http_code}' http://localhost/"),
+        ("MySQL", "mysql -u magento -pmagento -e 'SELECT 1'"),
+    ]
+    for name, cmd in checks:
+        if bash.run_ok(cmd, show_output=False):
+            bash.echo(f"  {name}: OK", color="green")
+        else:
+            bash.echo(f"  {name}: FAILED", color="red")
+    bash.echo("Services check completed.")
 
 
 def run_full_installation():
@@ -382,13 +405,17 @@ def run_full_installation():
     # Configure Nginx
     install_nginx(nginx_conf_path)
     
-    # Setup PostgreSQL
+    # Setup MySQL
     install_mysql()
     
-    # Clone and setup OroCommerce
+    # Install Elasticsearch (required for Magento 2.4+)
+    install_elsticsearch()
+    
+    # Clone and setup Magento
     install_magento()
     
     bash.echo("Full installation completed successfully!")
+    check_services()
 
 
 def interactive_menu(stdscr):
@@ -444,21 +471,21 @@ def interactive_menu(stdscr):
         
         # Draw ASCII art for "Magento"
         ascii_art = [
-        " __       __   ______    ______   ________  __    __  ________  ______          ______        ",
-        "/  \     /  | /      \  /      \ /        |/  \  /  |/        |/      \        /      \        ",
-        "$$  \   /$$ |/$$$$$$  |/$$$$$$  |$$$$$$$$/ $$  \ $$ |$$$$$$$$//$$$$$$  |      /$$$$$$  |       ",
-        "$$$  \ /$$$ |$$ |__$$ |$$ | _$$/ $$ |__    $$$  \$$ |   $$ |  $$ |  $$ |      $$____$$ |       ",
-        "$$$$  /$$$$ |$$    $$ |$$ |/    |$$    |   $$$$  $$ |   $$ |  $$ |  $$ |       /    $$/        ",
-        "$$ $$ $$/$$ |$$$$$$$$ |$$ |$$$$ |$$$$$/    $$ $$ $$ |   $$ |  $$ |  $$ |      /$$$$$$/         ",
-        "$$ |$$$/ $$ |$$ |  $$ |$$ \__$$ |$$ |_____ $$ |$$$$ |   $$ |  $$ \__$$ |      $$ |_____        ",
-        "$$ | $/  $$ |$$ |  $$ |$$    $$/ $$       |$$ | $$$ |   $$ |  $$    $$/       $$       |       ",
-        "$$_______$$/______ $$/______$$/__$$$$$__$/______ $$/______/    $$$$$$/        $$$$$$$$/        ",
-        " /       | /      \  /      \ /  \   /  |/      \  /      \                                   ",
-        "/$$$$$$$/ /$$$$$$  |/$$$$$$  |$$  \ /$$//$$$$$$  |/$$$$$$  |                                   ",
-        "$$      \ $$    $$ |$$ |  $$/  $$  /$$/ $$    $$ |$$ |  $$/                                    ",
-        "$$$$$$  |$$$$$$$$/ $$ |        $$ $$/  $$$$$$$$/ $$ |                                         ",
-        "/     $$/ $$       |$$ |         $$$/   $$       |$$ |                                         ",
-        "$$$$$$$/   $$$$$$$/ $$/           $/     $$$$$$$/ $$/                                         "
+            r" __       __   ______    ______   ________  __    __  ________  ______          ______        ",
+            r"/  \     /  | /      \  /      \ /        |/  \  /  |/        |/      \        /      \        ",
+            r"$$  \   /$$ |/$$$$$$  |/$$$$$$  |$$$$$$$$/ $$  \ $$ |$$$$$$$$//$$$$$$  |      /$$$$$$  |       ",
+            r"$$$  \ /$$$ |$$ |__$$ |$$ | _$$/ $$ |__    $$$  \$$ |   $$ |  $$ |  $$ |      $$____$$ |       ",
+            r"$$$$  /$$$$ |$$    $$ |$$ |/    |$$    |   $$$$  $$ |   $$ |  $$ |  $$ |       /    $$/        ",
+            r"$$ $$ $$/$$ |$$$$$$$$ |$$ |$$$$ |$$$$$/    $$ $$ $$ |   $$ |  $$ |  $$ |      /$$$$$$/         ",
+            r"$$ |$$$/ $$ |$$ |  $$ |$$ \__$$ |$$ |_____ $$ |$$$$ |   $$ |  $$ \__$$ |      $$ |_____        ",
+            r"$$ | $/  $$ |$$ |  $$ |$$    $$/ $$       |$$ | $$$ |   $$ |  $$    $$/       $$       |       ",
+            r"$$_______$$/______ $$/______$$/__$$$$$__$/______ $$/______/    $$$$$$/        $$$$$$$$/        ",
+            r" /       | /      \  /      \ /  \   /  |/      \  /      \                                   ",
+            r"/$$$$$$$/ /$$$$$$  |/$$$$$$  |$$  \ /$$//$$$$$$  |/$$$$$$  |                                   ",
+            r"$$      \ $$    $$ |$$ |  $$/  $$  /$$/ $$    $$ |$$ |  $$/                                    ",
+            r"$$$$$$  |$$$$$$$$/ $$ |        $$ $$/  $$$$$$$$/ $$ |                                         ",
+            r"/     $$/ $$       |$$ |         $$$/   $$       |$$ |                                         ",
+            r"$$$$$$$/   $$$$$$$/ $$/           $/     $$$$$$$/ $$/                                         "
         ]
 
         # Calculate ASCII art position
@@ -504,11 +531,8 @@ def interactive_menu(stdscr):
         # Refresh the screen
         stdscr.refresh()
         
-        if inputs:
-            key = int(inputs)
-        else:
-            # Get user input
-            key = stdscr.getch()
+        # Get user input
+        key = stdscr.getch()
         
         # Handle navigation
         if key == curses.KEY_UP and current_item > 0:
@@ -538,8 +562,9 @@ def interactive_menu(stdscr):
                 install_redis()
             elif current_item == 5:  # Install OpenSearch
                 install_elsticsearch()
-            elif current_item == 6:  # Clone and Setup OroCommerce
+            elif current_item == 6:  # Clone and Setup Magento
                 install_magento()
+                check_services()
             elif current_item == 7:  # Run Full Installation
                 run_full_installation()
                 # Mark all items as visited when running full installation
@@ -568,54 +593,6 @@ def interactive_menu(stdscr):
         elif key >= ord('1') and key <= ord('9'):
             # Direct selection using number keys
             current_item = key - ord('1')
-        #if -i arguments are passed
-        elif inputs:
-            current_item = key - 1
-            
-            # If the user pressed Enter (selection)
-            if current_item == 8:  # Exit
-                return
-            
-            # Mark the item as visited
-            visited_items[current_item] = True
-            
-            # Exit curses mode temporarily to run the selected action
-            curses.endwin()
-            
-            if current_item == 0:  # Install Packages
-                install_packages(packages)
-            elif current_item == 1:  # Configure PHP
-                install_php(php_ini_path, "8.2")
-            elif current_item == 2:  # Configure Nginx
-                install_nginx(nginx_conf_path)
-            elif current_item == 3:  # Setup PostgreSQL
-                setup_postgresql(db_name, db_user, db_password)
-            elif current_item == 4:  # Setup Redis
-                install_redis()
-            elif current_item == 5:  # Install OpenSearch
-                install_elsticsearch()
-            elif current_item == 6:  # Clone and Setup Magento
-                install_magento()
-            elif current_item == 7:  # Run Full Installation
-                run_full_installation()
-                # Mark all items as visited when running full installation
-                visited_items = [True] * (len(menu_items) - 1) + [False]  # All except Exit
-            
-            # Wait for user to press a key before returning to the menu
-            input("\nPress Enter to return to the menu...")
-            
-            # Reinitialize curses
-            stdscr = curses.initscr()
-            curses.start_color()
-            curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
-            curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)
-            curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-            curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.noecho()
-            curses.cbreak()
-            stdscr.keypad(True)
-            curses.curs_set(0)
 
 def parse_args():
     """Parse command-line arguments."""
@@ -627,9 +604,6 @@ def parse_args():
      # Add no options
     parser.add_argument('-n', '--no-inp', action='store_true',
                         help="Run in non-interactive mode with default values")
-    
-    parser.add_argument('-i', '--inputs', action='store',
-                        help="Input")
     
     # Add no-interaction option
     parser.add_argument('--no-interaction', action='store_true',
@@ -645,9 +619,7 @@ def main():
     # Define global variables
     global php_ini_path, nginx_conf_path, db_name, db_user, db_password
     global repo_url, branch, install_dir, admin_user, admin_email, admin_firstname, admin_lastname, admin_password
-    global packages, bash, inputs
-
-    inputs = args.inputs
+    global packages, bash
 
     # Initialize Basher with verbosity level from command-line arguments
     bash = Basher()

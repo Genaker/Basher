@@ -5,6 +5,16 @@ services:
       - .:/app
     stdin_open: true
     tty: true
+    # uses Dockerfile ENTRYPOINT (install-oro.py)
     # docker compose run oro-install              # interactive menu
-    # docker compose run oro-install -i 8          # full install
     # docker compose run oro-install --no-interaction
+
+  magento-install:
+    build: .
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    entrypoint: ["python3", "install-magento.py"]
+    # docker compose run magento-install              # interactive menu
+    # docker compose run magento-install --no-interaction

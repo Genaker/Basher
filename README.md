@@ -403,23 +403,57 @@ python3 -m pytest tests/ -v
 python3 tests.py
 ```
 
-## Docker (OroCommerce install script)
+## Docker (OroCommerce & Magento install scripts)
 
 **Prerequisites:** Docker and Docker Compose.
 
-The `install-oro.py` script installs an OroCommerce stack: PHP 8.3, Composer, Node.js, Nginx, Supervisor, MySQL/PostgreSQL, Redis, Elasticsearch.
-
-### Build and run
+### Quick start
 
 ```bash
-# Build image
+# Build the image
 docker compose build
-# Or with verbose output:
-docker compose build --progress=plain
 
-# Run install
+# Run Magento full install (non-interactive)
+docker compose run --rm magento-install --no-interaction
+
+# Run OroCommerce full install (non-interactive)
+docker compose run --rm oro-install --no-interaction
+```
+
+### Magento install (`install-magento.py`)
+
+Installs: PHP 8.2, Composer, Nginx, MySQL, Redis, Elasticsearch. Magento is installed at `/var/www/html/magento`.
+
+```bash
+# Interactive menu (choose steps with arrow keys)
+docker compose run --rm magento-install
+
+# Full install (runs all steps automatically)
+docker compose run --rm magento-install --no-interaction
+```
+
+### Test Magento install inside container
+
+Get a shell inside the container and run the install manually:
+
+```bash
+# Start interactive shell (overrides default entrypoint)
+docker compose run --rm --entrypoint bash magento-install
+
+# Inside the container (/app is the project root):
+python3 install-magento.py                    # interactive menu
+python3 install-magento.py --no-interaction   # full install
+```
+
+From the interactive menu you can run individual steps (1–8): Packages, PHP, Nginx, MySQL, Redis, Elasticsearch, Magento setup, or Full installation.
+
+### OroCommerce install (`install-oro.py`)
+
+Installs: PHP 8.3, Composer, Node.js, Nginx, Supervisor, MySQL/PostgreSQL, Redis, Elasticsearch.
+
+```bash
 docker compose run --rm oro-install                    # interactive menu
-docker compose run --rm oro-install --no-interaction   # full install (non-interactive)
+docker compose run --rm oro-install --no-interaction   # full install
 ```
 
 ### Script options
@@ -427,27 +461,13 @@ docker compose run --rm oro-install --no-interaction   # full install (non-inter
 | Option | Description |
 |--------|-------------|
 | `--no-interaction` | Full install without prompts |
-| `-i N`, `--inputs N` | Run specific step by index |
 | `-v`, `--verbose` | Increase verbosity |
 | `-n`, `--no-inp` | No input mode |
 
-### Interactive mode (bash inside container) Manualy Test in Docker
+### Notes
 
-To get a shell inside the container and run the install script manually:
-
-```bash
-# 1. Start interactive bash (overrides default entrypoint)
-docker compose run --rm --entrypoint bash oro-install
-
-# 2. You are now inside the container. Run the install script:
-python3 install-oro.py                    # interactive menu (choose steps)
-python3 install-oro.py --no-interaction   # full install
-python3 install-oro.py -i 8               # run step 8 only
-```
-
-You can also run other commands (e.g. `apt list`, `php -v`) before or after the install.
-
-**Note:** The project is mounted at `/app`, so code changes are reflected immediately without rebuilding.
+- The project is mounted at `/app`, so code changes are reflected immediately without rebuilding.
+- Build with verbose output: `docker compose build --progress=plain`
 
 ## License
 
